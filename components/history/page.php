@@ -1,0 +1,1 @@
+<?php view('pages/views/history.php', get_defined_vars()); ?>

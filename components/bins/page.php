@@ -1,0 +1,1 @@
+<?php view('pages/views/bins.php', get_defined_vars()); ?>

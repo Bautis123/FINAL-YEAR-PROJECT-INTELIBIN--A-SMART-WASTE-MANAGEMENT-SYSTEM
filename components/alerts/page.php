@@ -1,0 +1,1 @@
+<?php view('pages/views/alerts.php', get_defined_vars()); ?>

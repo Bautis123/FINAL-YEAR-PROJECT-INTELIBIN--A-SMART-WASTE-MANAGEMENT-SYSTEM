@@ -1,0 +1,1 @@
+<?php view('pages/views/about.php', get_defined_vars()); ?>

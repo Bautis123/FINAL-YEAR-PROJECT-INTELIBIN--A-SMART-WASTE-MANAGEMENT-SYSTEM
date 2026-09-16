@@ -1,0 +1,118 @@
+InteliBin — Smart Waste Bin Monitoring System
+University of Zambia — Final Year Project
+An IoT-enabled smart waste bin that measures fill level using an ultrasonic sensor,
+automates the lid via a servo motor, and displays real-time data on a web dashboard.
+
+Project Structure
+C:/xampp/htdocs/intelibin/
+│
+├── dashboard.php               Main monitoring dashboard (live fill level, chart, log)
+├── bins.php                    View all bins, fill level, and last emptied time
+├── history.php                 Filterable table of all past sensor readings
+├── settings.php                Configure bin name, location, and height
+├── about.php                   System overview, pipeline diagram, hardware specs
+│
+├── assets/
+│   └── css/
+│       └── app.css             Shared styles used across all pages
+│
+├── includes/
+│   ├── db.php                  MySQL connection — edit credentials here
+│   ├── header.php              Shared navigation bar and page head
+│   └── footer.php              Shared footer
+│
+├── api/
+│   ├── fetch_latest.php        GET  — returns latest bin reading as JSON
+│   └── command.php             POST — sends open/close/reset command to bin
+│
+├── arduino/
+│   └── intelibin.ino           Arduino sketch — upload to board via Arduino IDE
+│
+├── python/
+│   └── serial_to_mysql.py      Runs on PC — reads USB serial, writes to MySQL
+│
+└── sql/
+    ├── intelibin_db.sql         Import this FIRST in phpMyAdmin
+    └── intelibin_twoway.sql     Import this SECOND in phpMyAdmin
+
+Hardware
+ComponentModelPinMicrocontrollerArduino Uno R3—Fill sensorHC-SR04 UltrasonicTRIG: 9, ECHO: 10Person detection sensorHC-SR04 UltrasonicTRIG: 7, ECHO: 8Lid motorSG90 ServoSignal: 6ConnectionUSB Type-B Cable—
+
+Setup
+1. Database
+
+Open http://localhost/phpmyadmin
+Create a new database named intelibin (done)
+Import sql/intelibin_db.sql first
+Import sql/intelibin_twoway.sql second
+
+2. Web App
+
+Make sure XAMPP Apache and MySQL are both running
+Confirm the folder is at C:/xampp/htdocs/intelibin/
+Open includes/db.php and check these lines match your setup:
+
+phpdefine('DB_HOST', 'localhost');
+define('DB_NAME', 'intelibin');
+define('DB_USER', 'root');
+define('DB_PASS', '');  // blank if no MySQL password set
+
+Visit http://localhost/intelibin/dashboard.php
+
+3. Arduino
+
+Open arduino/intelibin.ino in Arduino IDE
+Select board: Arduino Uno
+Select the correct COM port (e.g. COM3)
+Click Upload
+Leave the Arduino plugged in via USB
+
+4. Python Script
+Install dependencies (run once):
+pip install pyserial pymysql
+Open python/serial_to_mysql.py and confirm these match your setup:
+pythonSERIAL_PORT = 'COM3'    # match the COM port your Arduino is on
+BIN_HEIGHT  = 30        # cm — physical height of your bin
+Run the script:
+python python/serial_to_mysql.py
+Keep this running whenever the system is active. It bridges the Arduino and the database.
+
+How It Works
+HC-SR04 Sensor
+     ↓
+Arduino Uno  (reads distance, detects person, controls servo lid)
+     ↓  USB Serial
+Python Script  (serial_to_mysql.py — receives readings, sends commands)
+     ↓
+MySQL Database  (stores readings, manages alerts, queues commands)
+     ↓
+PHP API  (fetch_latest.php, command.php)
+     ↓
+Web Dashboard  (polls every 30 seconds, updates without page reload)
+
+Fill Level Thresholds
+RangeStatusColourAlert0% – 19%ReadyGreenNo20% – 49%FillingBlueNo50% – 79%Almost FullAmberNo80% – 100%FullRedYes
+
+Serial Protocol
+Messages the Arduino sends to the PC:
+MessageMeaningDIST:12.5Distance to waste surface in cmPERSON:1Someone is within 40 cm of the binPERSON:0Person has moved awayLID:OPENLid has finished openingLID:CLOSEDLid has finished closing
+Messages the PC sends to the Arduino:
+MessageMeaningOPENOpen the lidCLOSEClose the lid
+
+Remote Lid Control (Operator Flow)
+
+Bin reaches 80% → dashboard shows Full alert
+Trash collector notifies operator
+Operator opens dashboard → clicks Open Bin
+Dashboard calls api/command.php → stores command in MySQL
+Python script detects command → sends OPEN to Arduino via serial
+Arduino opens lid → sends LID:OPEN back to Python
+Python confirms in MySQL → dashboard updates lid status
+After emptying, operator clicks Reset → lid closes, bin resets to Ready
+
+
+Pages
+URLDescription/intelibin/dashboard.phpLive fill level, chart, event log/intelibin/bins.phpAll bins with fill level and last emptied/intelibin/history.phpFull reading history with filters/intelibin/settings.phpBin configuration/intelibin/about.phpSystem info and pipeline diagram
+
+Dependencies
+ToolVersionPurposePHP8.0+Backend pages and APIMySQL8.0+DatabaseApache2.4+Web serverPython3.8+Serial bridgepyseriallatestRead Arduino serial portpymysqllatestPython → MySQL connectionChart.js4.4.1Fill level graph on dashboardPoppinsGoogle FontsUI font
