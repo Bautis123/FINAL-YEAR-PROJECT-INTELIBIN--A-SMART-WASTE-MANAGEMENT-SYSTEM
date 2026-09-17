@@ -6,7 +6,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 const ADMIN_USER_ID = 'admin';
 const ADMIN_EMAIL = 'admin@intelibin.local';
-const ADMIN_PASSWORD = 'admin123';
+const ADMIN_PASSWORD = 'admin1234';
 
 function admin_logged_in(): bool {
   return !empty($_SESSION['admin_user']);
