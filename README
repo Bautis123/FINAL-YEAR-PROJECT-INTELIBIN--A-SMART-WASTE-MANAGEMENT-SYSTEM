@@ -36,7 +36,11 @@ C:/xampp/htdocs/intelibin/
     └── intelibin_twoway.sql     Import this SECOND in phpMyAdmin
 
 Hardware
-ComponentModelPinMicrocontrollerArduino Uno R3—Fill sensorHC-SR04 UltrasonicTRIG: 9, ECHO: 10Person detection sensorHC-SR04 UltrasonicTRIG: 7, ECHO: 8Lid motorSG90 ServoSignal: 6ConnectionUSB Type-B Cable—
+Controller: Arduino Uno R3
+USB: Arduino Uno connects directly to the PC. USB provides power and serial communication at 9600 baud.
+Person detection sensor: HC-SR04, TRIG D9, ECHO D10, VCC 5V, GND GND. Detection threshold: about 15 cm.
+Fill level sensor: HC-SR04, TRIG D4, ECHO D5, VCC 5V, GND GND.
+Servo: signal D6, red 5V, brown GND, orange D6.
 
 Setup
 1. Database
@@ -54,6 +58,7 @@ Open includes/db.php and check these lines match your setup:
 
 phpdefine('DB_HOST', 'localhost');
 define('DB_NAME', 'intelibin');
+define('DB_PORT', 3307);
 define('DB_USER', 'root');
 define('DB_PASS', '');  // blank if no MySQL password set
 
@@ -95,7 +100,10 @@ RangeStatusColourAlert0% – 19%ReadyGreenNo20% – 49%FillingBlueNo50% – 79%A
 
 Serial Protocol
 Messages the Arduino sends to the PC:
-MessageMeaningDIST:12.5Distance to waste surface in cmPERSON:1Someone is within 40 cm of the binPERSON:0Person has moved awayLID:OPENLid has finished openingLID:CLOSEDLid has finished closing
+Messages the Arduino sends to the PC are newline-delimited JSON:
+{"event":"reading","personDistance":35.2,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
+{"event":"person","personDistance":12.0,"detected":true,"fillDistance":12.5,"fillPercentage":58,"lid":"open"}
+{"event":"lid","personDistance":12.0,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
 Messages the PC sends to the Arduino:
 MessageMeaningOPENOpen the lidCLOSEClose the lid
 

@@ -1,49 +1,55 @@
 /*
- * InteliBin — Arduino Sketch (Two-Way Communication)
- * ====================================================
- * Hardware:
- *   - HC-SR04 ultrasonic sensor  (TRIG: pin 9, ECHO: pin 10)
- *   - SG90 servo motor           (signal: pin 6)
- *   - Optional: second HC-SR04 for person detection (TRIG: pin 7, ECHO: pin 8)
+ * InteliBin - Arduino Uno hardware integration
+ * ===========================================
  *
- * Serial protocol (9600 baud):
+ * Hardware contract:
+ *   Person sensor HC-SR04: TRIG D9, ECHO D10
+ *   Fill sensor HC-SR04:   TRIG D4, ECHO D5
+ *   Servo signal:          D6
+ *   USB serial baud:       9600
  *
- *   SENDS to PC:
- *     "DIST:12.5\n"   — distance to waste surface in cm (every 5 min)
- *     "PERSON:1\n"    — someone is within PERSON_THRESHOLD cm
- *     "PERSON:0\n"    — person has moved away
- *     "LID:OPEN\n"    — lid has finished opening
- *     "LID:CLOSED\n"  — lid has finished closing
+ * Arduino -> PC protocol: newline-delimited JSON.
+ *   {"event":"reading","personDistance":35.2,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
+ *   {"event":"person","personDistance":12.0,"detected":true,"fillDistance":12.5,"fillPercentage":58,"lid":"open"}
+ *   {"event":"lid","personDistance":12.0,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
  *
- *   RECEIVES from PC:
- *     "OPEN\n"        — open the lid
- *     "CLOSE\n"       — close the lid
+ * PC -> Arduino protocol:
+ *   OPEN
+ *   CLOSE
  */
 
 #include <Servo.h>
 
-// ── Pin definitions ───────────────────────────────────────────
-const int TRIG_FILL   = 9;    // Fill sensor trigger
-const int ECHO_FILL   = 10;   // Fill sensor echo
-const int TRIG_PERSON = 7;    // Person detection trigger
-const int ECHO_PERSON = 8;    // Person detection echo
-const int SERVO_PIN   = 6;    // Servo signal
+const int TRIG_PERSON = 9;
+const int ECHO_PERSON = 10;
+const int TRIG_FILL   = 4;
+const int ECHO_FILL   = 5;
+const int SERVO_PIN   = 6;
 
-// ── Config ────────────────────────────────────────────────────
-const int  BIN_HEIGHT_CM      = 30;    // Physical bin height
-const int  PERSON_THRESHOLD   = 40;   // cm — closer than this = person detected
-const int  LID_OPEN_ANGLE     = 90;   // degrees
-const int  LID_CLOSED_ANGLE   = 0;    // degrees
-const long READ_INTERVAL_MS   = 300000UL; // 5 minutes in milliseconds
+const int BIN_HEIGHT_CM       = 30;
+const int PERSON_THRESHOLD_CM = 15;
+const int LID_OPEN_ANGLE      = 90;
+const int LID_CLOSED_ANGLE    = 0;
 
-// ── State ─────────────────────────────────────────────────────
-Servo     lidServo;
-bool      lidIsOpen         = false;
-bool      personPresent     = false;
-bool      binFull           = false;    // set when fill >= 80%
-unsigned long lastReadTime  = 0;
+const unsigned long FILL_READ_INTERVAL_MS = 300000UL; // 5 minutes
+const unsigned long LID_OPEN_DURATION_MS  = 5000UL;   // 5 seconds
+const unsigned long PERSON_POLL_MS        = 100UL;
 
-// ── Measure distance with HC-SR04 ─────────────────────────────
+Servo lidServo;
+
+bool lidIsOpen = false;
+bool personInsideZone = false;
+bool personCanTrigger = true;
+bool binFull = false;
+
+float lastPersonDistance = -1;
+float lastFillDistance = -1;
+int lastFillPercent = 0;
+
+unsigned long lidCloseAt = 0;
+unsigned long lastFillReadAt = 0;
+unsigned long lastPersonPollAt = 0;
+
 float measureDistance(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -51,119 +57,152 @@ float measureDistance(int trigPin, int echoPin) {
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
-  long duration = pulseIn(echoPin, HIGH, 30000); // 30ms timeout
-  if (duration == 0) return -1; // sensor error or out of range
+  long duration = pulseIn(echoPin, HIGH, 30000);
+  if (duration == 0) return -1;
 
-  return (duration * 0.0343) / 2.0; // cm
+  return (duration * 0.0343) / 2.0;
 }
 
-// ── Open lid ──────────────────────────────────────────────────
-void openLid() {
-  if (lidIsOpen) {
-    Serial.println("LID:OPEN");
+int distanceToFillPercent(float distanceCm) {
+  if (distanceCm < 0) return lastFillPercent;
+  int pct = (int)(((BIN_HEIGHT_CM - distanceCm) / (float)BIN_HEIGHT_CM) * 100);
+  return constrain(pct, 0, 100);
+}
+
+void printNullableDistance(float value) {
+  if (value < 0) {
+    Serial.print("null");
     return;
   }
-  lidServo.write(LID_OPEN_ANGLE);
-  delay(500); // give servo time to reach position
-  lidIsOpen = true;
-  Serial.println("LID:OPEN");
+  Serial.print(value, 1);
 }
 
-// ── Close lid ─────────────────────────────────────────────────
-void closeLid() {
+void sendStatus(const char* eventName, bool includeDetected, bool detected) {
+  Serial.print("{\"event\":\"");
+  Serial.print(eventName);
+  Serial.print("\",\"personDistance\":");
+  printNullableDistance(lastPersonDistance);
+  Serial.print(",\"fillDistance\":");
+  printNullableDistance(lastFillDistance);
+  Serial.print(",\"fillPercentage\":");
+  Serial.print(lastFillPercent);
+  Serial.print(",\"lid\":\"");
+  Serial.print(lidIsOpen ? "open" : "closed");
+  Serial.print("\"");
+  if (includeDetected) {
+    Serial.print(",\"detected\":");
+    Serial.print(detected ? "true" : "false");
+  }
+  Serial.println("}");
+}
+
+void openLid(bool timed) {
   if (!lidIsOpen) {
-    Serial.println("LID:CLOSED");
-    return;
+    lidServo.write(LID_OPEN_ANGLE);
+    delay(500);
+    lidIsOpen = true;
   }
-  lidServo.write(LID_CLOSED_ANGLE);
-  delay(500);
-  lidIsOpen = false;
-  Serial.println("LID:CLOSED");
+
+  if (timed) {
+    lidCloseAt = millis() + LID_OPEN_DURATION_MS;
+  }
+
+  sendStatus("lid", false, false);
 }
 
-// ── Process command from PC ────────────────────────────────────
+void closeLid() {
+  if (lidIsOpen) {
+    lidServo.write(LID_CLOSED_ANGLE);
+    delay(500);
+    lidIsOpen = false;
+  }
+
+  lidCloseAt = 0;
+  sendStatus("lid", false, false);
+}
+
 void processCommand(String cmd) {
   cmd.trim();
+  cmd.toUpperCase();
+
   if (cmd == "OPEN") {
-    openLid();
+    openLid(false);
   } else if (cmd == "CLOSE") {
     closeLid();
   }
 }
 
-// ── Setup ─────────────────────────────────────────────────────
+void readFillLevel() {
+  lastFillDistance = measureDistance(TRIG_FILL, ECHO_FILL);
+  if (lastFillDistance > 0) {
+    lastFillPercent = distanceToFillPercent(lastFillDistance);
+    binFull = lastFillPercent >= 80;
+
+    if (binFull && lidIsOpen) {
+      closeLid();
+    }
+
+    sendStatus("reading", false, false);
+  }
+}
+
+void pollPersonSensor() {
+  lastPersonDistance = measureDistance(TRIG_PERSON, ECHO_PERSON);
+  bool detected = lastPersonDistance > 0 && lastPersonDistance <= PERSON_THRESHOLD_CM;
+
+  if (detected && !personInsideZone) {
+    personInsideZone = true;
+    sendStatus("person", true, true);
+
+    if (personCanTrigger && !binFull) {
+      personCanTrigger = false;
+      openLid(true);
+    }
+  }
+
+  if (!detected && personInsideZone) {
+    personInsideZone = false;
+    personCanTrigger = true;
+    sendStatus("person", true, false);
+  }
+}
+
 void setup() {
   Serial.begin(9600);
 
-  pinMode(TRIG_FILL,   OUTPUT);
-  pinMode(ECHO_FILL,   INPUT);
   pinMode(TRIG_PERSON, OUTPUT);
   pinMode(ECHO_PERSON, INPUT);
+  pinMode(TRIG_FILL, OUTPUT);
+  pinMode(ECHO_FILL, INPUT);
 
   lidServo.attach(SERVO_PIN);
-  lidServo.write(LID_CLOSED_ANGLE); // start closed
+  lidServo.write(LID_CLOSED_ANGLE);
   delay(500);
 
-  Serial.println("INTELIBIN:READY");
+  readFillLevel();
+  lastFillReadAt = millis();
+  sendStatus("ready", false, false);
 }
 
-// ── Loop ──────────────────────────────────────────────────────
 void loop() {
-
-  // ── 1. Check for commands from PC ─────────────────────────
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n');
     processCommand(cmd);
   }
 
-  // ── 2. Person detection (check every loop cycle ~100ms) ───
-  float personDist = measureDistance(TRIG_PERSON, ECHO_PERSON);
-
-  if (personDist > 0 && personDist < PERSON_THRESHOLD) {
-    if (!personPresent) {
-      personPresent = true;
-      Serial.println("PERSON:1");
-
-      // Auto-open only if bin is not full
-      if (!binFull) {
-        openLid();
-      }
-    }
-  } else {
-    if (personPresent) {
-      personPresent = false;
-      Serial.println("PERSON:0");
-
-      // Auto-close when person leaves (only if we auto-opened)
-      if (lidIsOpen) {
-        closeLid();
-      }
-    }
-  }
-
-  // ── 3. Fill level reading (every 5 minutes) ───────────────
   unsigned long now = millis();
-  if (now - lastReadTime >= READ_INTERVAL_MS || lastReadTime == 0) {
-    lastReadTime = now;
 
-    float distance = measureDistance(TRIG_FILL, ECHO_FILL);
-
-    if (distance > 0) {
-      // Report raw distance — Python converts to fill %
-      Serial.print("DIST:");
-      Serial.println(distance, 1); // e.g. "DIST:12.5"
-
-      // Update local full flag
-      int fillPercent = (int)(((BIN_HEIGHT_CM - distance) / (float)BIN_HEIGHT_CM) * 100);
-      fillPercent = constrain(fillPercent, 0, 100);
-      binFull = (fillPercent >= 80);
-
-      // If bin just became full, close and lock lid
-      if (binFull && lidIsOpen) {
-        closeLid();
-      }
-    }
+  if (now - lastPersonPollAt >= PERSON_POLL_MS) {
+    lastPersonPollAt = now;
+    pollPersonSensor();
   }
 
-  delay(100); // small delay — keeps loop responsive without hammering the sensor
+  if (lidIsOpen && lidCloseAt > 0 && now >= lidCloseAt) {
+    closeLid();
+  }
+
+  if (now - lastFillReadAt >= FILL_READ_INTERVAL_MS || lastFillReadAt == 0) {
+    lastFillReadAt = now;
+    readFillLevel();
+  }
 }

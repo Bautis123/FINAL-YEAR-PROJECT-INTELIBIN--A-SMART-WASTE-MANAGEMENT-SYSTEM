@@ -34,6 +34,7 @@ import pymysql
 import time
 import sys
 import threading
+import json
 from datetime import datetime
 
 # ── Config ─────────────────────────────────────────────────────
@@ -122,6 +123,73 @@ def distance_to_fill(distance_cm: float, bin_height: int) -> int:
     return max(0, min(100, round(fill)))
 
 
+def save_fill_reading(db, dist_cm: float, fill_percent=None):
+    if fill_percent is None:
+        fill_percent = distance_to_fill(dist_cm, get_bin_height(db))
+
+    fill_percent = max(0, min(100, int(round(fill_percent))))
+    log(f"Distance: {dist_cm} cm -> Fill: {fill_percent}%")
+
+    with db.cursor() as cur:
+        cur.callproc('insert_reading', (BIN_ID, fill_percent, dist_cm))
+    db.commit()
+
+    if fill_percent >= 80:
+        set_lid_status(db, 'locked')
+    else:
+        unlock_if_not_full(db)
+
+    log("Reading saved.")
+
+
+def process_person_detection(db, detected: int):
+    log(f"Person {'detected' if detected else 'left'}")
+    try:
+        with db.cursor() as cur:
+            cur.callproc('update_person_detection', (BIN_ID, detected))
+        if detected:
+            record_person_event(db)
+        db.commit()
+    except pymysql.Error as e:
+        log(f"Person detection DB error: {e}", 'ERROR')
+
+
+def process_json_message(payload: dict, db, poller):
+    event = str(payload.get('event', '')).lower()
+
+    if event == 'reading':
+        dist_cm = payload.get('fillDistance')
+        if dist_cm is None:
+            log("Reading event missing fillDistance", 'WARN')
+            return
+        fill_percent = payload.get('fillPercentage')
+        save_fill_reading(db, float(dist_cm), fill_percent)
+        return
+
+    if event == 'person':
+        process_person_detection(db, 1 if payload.get('detected') else 0)
+        return
+
+    if event == 'lid':
+        lid = str(payload.get('lid', '')).lower()
+        if lid == 'open':
+            poller.on_arduino_confirmed(db, 'open')
+        elif lid == 'closed':
+            poller.on_arduino_confirmed(db, 'closed')
+        else:
+            log(f"Bad lid value in JSON: {payload.get('lid')}", 'WARN')
+        return
+
+    if event == 'ready':
+        lid = str(payload.get('lid', 'closed')).lower()
+        if lid in ('open', 'closed'):
+            set_lid_status(db, lid)
+        log("Arduino ready.")
+        return
+
+    log(f"Unknown JSON event: '{event}'", 'WARN')
+
+
 # ── Send to Arduino ────────────────────────────────────────────
 def send_to_arduino(ser: serial.Serial, msg: str):
     ser.write((msg.upper().strip() + '\n').encode('utf-8'))
@@ -201,35 +269,27 @@ def process_line(line: str, db, poller: CommandPoller):
 
     log(f"← Arduino: {line}")
 
+    if line.startswith('{'):
+        try:
+            process_json_message(json.loads(line), db, poller)
+        except json.JSONDecodeError as e:
+            log(f"Bad JSON from Arduino: {e}", 'WARN')
+        except (TypeError, ValueError) as e:
+            log(f"Bad JSON value from Arduino: {e}", 'WARN')
+        return
+
     # Distance reading → save to DB
     if line.startswith('DIST:'):
         try:
             dist_cm      = float(line[5:])
-            fill_percent = distance_to_fill(dist_cm, get_bin_height(db))
-            log(f"Distance: {dist_cm} cm → Fill: {fill_percent}%")
-            with db.cursor() as cur:
-                cur.callproc('insert_reading', (BIN_ID, fill_percent, dist_cm))
-            db.commit()
-            if fill_percent >= 80:
-                set_lid_status(db, 'locked')
-            else:
-                unlock_if_not_full(db)
-            log("✓ Reading saved.")
+            save_fill_reading(db, dist_cm)
         except ValueError:
             log(f"Bad DIST value: '{line}'", 'WARN')
 
     # Person near bin → update DB, auto-trigger open/close via stored procedure
     elif line.startswith('PERSON:'):
         detected = 1 if line[7:].strip() == '1' else 0
-        log(f"Person {'detected' if detected else 'left'}")
-        try:
-            with db.cursor() as cur:
-                cur.callproc('update_person_detection', (BIN_ID, detected))
-            if detected:
-                record_person_event(db)
-            db.commit()
-        except pymysql.Error as e:
-            log(f"Person detection DB error: {e}", 'ERROR')
+        process_person_detection(db, detected)
 
     # Arduino confirms lid opened
     elif line == 'LID:OPEN':
