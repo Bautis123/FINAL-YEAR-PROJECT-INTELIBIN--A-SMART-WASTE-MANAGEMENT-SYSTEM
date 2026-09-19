@@ -3,8 +3,15 @@
 // POST endpoint — operator issues a command to a bin.
 // Body (JSON or form): { bin_id, command, issued_by, override }
 
+require_once '../includes/auth.php';
 require_once '../includes/db.php';
 header('Content-Type: application/json');
+
+if (!admin_logged_in()) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Authentication required']);
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

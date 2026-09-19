@@ -3,8 +3,15 @@
 // Returns the latest reading for a bin as JSON.
 // Called by the dashboard every 30 seconds.
 
+require_once '../includes/auth.php';
 require_once '../includes/db.php';
 header('Content-Type: application/json');
+
+if (!admin_logged_in()) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Authentication required']);
+    exit;
+}
 
 $bin_id = isset($_GET['bin_id']) ? (int)$_GET['bin_id'] : 1;
 
