@@ -5,6 +5,10 @@
 .bin-card-location { font-size:11px; color:var(--muted); }
 .dashboard-bin-body { margin-bottom:16px; }
 .bin-meta { width:100%; border-top:1px solid var(--border); }
+.lid-state { font-weight:700; }
+.lid-state.open { color:var(--green); }
+.lid-state.closed { color:var(--muted); }
+.lid-state.locked { color:var(--red); }
 .people-panel,.lid-controls { width:100%; margin-top:16px; border-top:1px solid var(--border); padding-top:16px; }
 .people-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .people-stat { background:var(--subtle); border:1px solid var(--border); border-radius:8px; padding:12px; text-align:center; }

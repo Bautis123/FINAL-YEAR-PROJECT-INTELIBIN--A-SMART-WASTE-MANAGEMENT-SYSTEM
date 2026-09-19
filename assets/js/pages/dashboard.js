@@ -24,8 +24,15 @@ function statusMeta(status) {
   return { status, label: labels[status] ?? 'Ready', colour: colours[status] ?? colours.ready, badge: badges[status] ?? 'b-green', chip: chips[status] ?? 'c-ok' };
 }
 
+function lidMeta(lidStatus) {
+  const status = ['open', 'closed', 'locked'].includes(lidStatus) ? lidStatus : 'closed';
+  const labels = { open:'Open', closed:'Closed', locked:'Locked' };
+  return { status, label: labels[status] };
+}
+
 function updateETA(pct) {
   const eta = document.getElementById('sv-eta'), sub = document.getElementById('sv-eta-sub'), now = Date.now();
+  eta.style.color = '';
   if (pct >= 100) { eta.textContent = 'Full'; eta.style.color = 'var(--red)'; sub.textContent = 'Bin needs emptying'; prevPct = pct; prevTime = now; return; }
   if (prevPct === null) { eta.textContent = '-'; sub.textContent = 'waiting for next reading'; prevPct = pct; prevTime = now; return; }
   const rate = (pct - prevPct) / ((now - prevTime) / 60000);
@@ -35,9 +42,11 @@ function updateETA(pct) {
 }
 
 function applyReading(d) {
-  const pct = Math.round(d.fill_percent), meta = statusMeta(d.status);
-  const readingId = Number(d.reading_id || 0);
+  const pct = Number.isFinite(Number(d.fill_percent)) ? Math.round(Number(d.fill_percent)) : 0;
   const recordedAt = d.recorded_at || null;
+  const meta = statusMeta(d.status);
+  const lid = lidMeta(d.lid_status);
+  const readingId = Number(d.reading_id || 0);
   const isNewReading = readingId
     ? readingId !== lastAppliedReadingId
     : recordedAt !== lastAppliedRecordedAt;
@@ -46,15 +55,22 @@ function applyReading(d) {
   document.getElementById('sv-fill').style.color = meta.colour;
   document.getElementById('sv-status').textContent = meta.label;
   document.getElementById('sv-status').style.color = meta.colour;
-  document.getElementById('sv-last').textContent = 'Last: ' + new Date(d.recorded_at).toLocaleTimeString();
+  document.getElementById('sv-last').textContent = recordedAt ? 'Last: ' + new Date(recordedAt).toLocaleTimeString() : 'Last: no reading yet';
   document.getElementById('binFill').style.height = pct + '%';
   document.getElementById('binPct').textContent = pct + '%';
   document.getElementById('statusBadge').className = 'status-badge ' + meta.badge;
   document.getElementById('statusText').textContent = meta.label;
+  document.getElementById('lidStateMeta').className = 'meta-val lid-state ' + lid.status;
+  document.getElementById('lidStateMeta').textContent = lid.label;
   if (d.height_cm) document.getElementById('binHeightMeta').textContent = Math.round(d.height_cm) + ' cm';
-  if (pct >= 80) { document.getElementById('alertPct').textContent = pct + '%'; document.getElementById('fullAlert').style.display = ''; }
+  if (pct >= 80) {
+    document.getElementById('alertPct').textContent = pct + '%';
+    document.getElementById('fullAlert').style.display = '';
+  } else {
+    document.getElementById('fullAlert').style.display = 'none';
+  }
 
-  if (!isNewReading) return;
+  if (!recordedAt || !isNewReading) return;
 
   lastAppliedReadingId = readingId;
   lastAppliedRecordedAt = recordedAt;
@@ -97,6 +113,7 @@ async function poll() {
 
 async function sendCommand(cmd, override) {
   const statusEl = document.getElementById('cmdStatus');
+  if (cmd === 'open' && override && !window.confirm('Force open this bin even if it is full?')) return;
   statusEl.textContent = `Sending '${cmd}' command...`;
   statusEl.style.color = 'var(--blue)';
   try {
