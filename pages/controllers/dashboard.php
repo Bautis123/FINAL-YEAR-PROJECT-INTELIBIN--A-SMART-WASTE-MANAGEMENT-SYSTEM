@@ -14,6 +14,7 @@ $initial = $stmt->fetch();
 
 $fill = (int)($initial['fill_percent'] ?? 0);
 $status = $initial['status'] ?? 'ready';
+$lidStatus = $initial['lid_status'] ?? 'closed';
 $binHeight = (int)($currentBin['height_cm'] ?? $initial['height_cm'] ?? 30);
 
 $stmt = $pdo->prepare("SELECT fill_percent, recorded_at FROM readings WHERE bin_id=:id AND recorded_at >= NOW() - INTERVAL 24 HOUR ORDER BY recorded_at ASC");
@@ -67,10 +68,13 @@ $stmt->execute([':id' => $binId]);
 $logRows = $stmt->fetchAll();
 $logEnd = min($logOffset + count($logRows), $totalEvents);
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM readings WHERE bin_id=:id AND DATE(recorded_at)=CURDATE()");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM person_events WHERE bin_id=:id AND DATE(detected_at)=CURDATE()");
 $stmt->execute([':id' => $binId]);
 $visitorsToday = (int)$stmt->fetchColumn();
-$visitorsTotal = $totalReadings;
+
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM person_events WHERE bin_id=:id");
+$stmt->execute([':id' => $binId]);
+$visitorsTotal = (int)$stmt->fetchColumn();
 
 $page_title = 'Dashboard';
 $active_nav = 'dashboard';
