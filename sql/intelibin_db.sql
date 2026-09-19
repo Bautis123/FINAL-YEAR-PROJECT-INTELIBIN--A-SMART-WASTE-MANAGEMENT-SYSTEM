@@ -12,6 +12,25 @@ USE intelibin;
 
 
 -- ============================================================
+--  TABLE: admin_users
+--  Dashboard operators. Passwords are stored as PHP password_hash
+--  values, not plaintext constants in source code.
+-- ============================================================
+CREATE TABLE admin_users (
+  id              INT           UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id         VARCHAR(80)   NOT NULL UNIQUE,
+  email           VARCHAR(160)  NOT NULL UNIQUE,
+  password_hash   VARCHAR(255)  NOT NULL,
+  active          TINYINT(1)    NOT NULL DEFAULT 1,
+  created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Default demo admin: admin / admin1234
+INSERT INTO admin_users (user_id, email, password_hash)
+VALUES ('admin', 'admin@intelibin.local', '$2y$10$qdiPDuJCU/YBMczsYENfwOJ1VVCTaFZmP.mEacWj.b96sRDdKd3qy');
+
+
+-- ============================================================
 --  TABLE: bins
 --  One row per physical bin. Right now you have one bin,
 --  but this lets you add more later without changing anything.

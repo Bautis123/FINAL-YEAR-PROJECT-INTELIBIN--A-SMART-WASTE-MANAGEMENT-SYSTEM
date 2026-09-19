@@ -4,10 +4,6 @@ if (session_status() === PHP_SESSION_NONE) {
   session_start();
 }
 
-const ADMIN_USER_ID = 'admin';
-const ADMIN_EMAIL = 'admin@intelibin.local';
-const ADMIN_PASSWORD = 'admin1234';
-
 function admin_logged_in(): bool {
   return !empty($_SESSION['admin_user']);
 }
@@ -17,8 +13,19 @@ function admin_name(): string {
 }
 
 function attempt_admin_login(string $userId, string $password): bool {
-  $knownUser = hash_equals(ADMIN_USER_ID, $userId) || hash_equals(ADMIN_EMAIL, $userId);
-  return $knownUser && hash_equals(ADMIN_PASSWORD, $password);
+  global $pdo;
+  require_once __DIR__ . '/db.php';
+
+  $stmt = $pdo->prepare("
+    SELECT password_hash
+    FROM admin_users
+    WHERE active = 1 AND (user_id = :user_id OR email = :email)
+    LIMIT 1
+  ");
+  $stmt->execute([':user_id' => $userId, ':email' => $userId]);
+  $admin = $stmt->fetch();
+
+  return $admin && password_verify($password, $admin['password_hash']);
 }
 
 function require_admin_login(): void {
