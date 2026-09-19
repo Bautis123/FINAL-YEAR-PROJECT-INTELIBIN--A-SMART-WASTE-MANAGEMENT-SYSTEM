@@ -62,6 +62,24 @@ CREATE INDEX idx_cmdlog_bin ON command_log (bin_id, issued_at DESC);
 
 
 -- ============================================================
+--  TABLE: person_events
+--  One row per person-detected event from the Arduino.
+--  Dashboard uses this for People Count instead of counting
+--  fill readings.
+-- ============================================================
+CREATE TABLE person_events (
+  id              BIGINT    UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  bin_id          INT       UNSIGNED NOT NULL,
+  detected_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_personevents_bin
+    FOREIGN KEY (bin_id) REFERENCES bins(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_personevents_bin_time ON person_events (bin_id, detected_at DESC);
+
+
+-- ============================================================
 --  Update latest_reading view to include bin_state
 -- ============================================================
 DROP VIEW IF EXISTS latest_reading;
@@ -112,17 +130,24 @@ CREATE PROCEDURE issue_command(
 )
 BEGIN
   DECLARE v_lid      VARCHAR(20);
+  DECLARE v_command  VARCHAR(20);
   DECLARE v_fill     TINYINT UNSIGNED;
   DECLARE v_log_id   INT UNSIGNED;
 
   -- Get current state
-  SELECT bs.lid_status, r.fill_percent
-  INTO   v_lid, v_fill
+  SELECT bs.lid_status, bs.command, r.fill_percent
+  INTO   v_lid, v_command, v_fill
   FROM   bin_state bs
   LEFT JOIN readings r ON r.id = (
     SELECT id FROM readings WHERE bin_id = p_bin_id ORDER BY recorded_at DESC LIMIT 1
   )
   WHERE  bs.bin_id = p_bin_id;
+
+  -- Do not overwrite an in-flight command
+  IF v_command IS NOT NULL AND v_command != 'none' THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'A command is already pending for this bin.';
+  END IF;
 
   -- Block auto-open if bin is full and no override
   IF p_command = 'open' AND v_fill >= 80 AND p_override = 0 THEN
@@ -211,23 +236,8 @@ BEGIN
   -- Update detection flag
   UPDATE bin_state SET person_detected = p_person_detected WHERE bin_id = p_bin_id;
 
-  -- Auto-open lid if person detected AND bin not full AND no command pending
-  IF p_person_detected = 1 AND (v_fill IS NULL OR v_fill < 80) AND v_command = 'none' THEN
-    UPDATE bin_state
-    SET command    = 'open',
-        command_by = 'auto',
-        command_at = NOW()
-    WHERE bin_id = p_bin_id;
-  END IF;
-
-  -- Auto-close when person leaves (only if lid was auto-opened)
-  IF p_person_detected = 0 THEN
-    UPDATE bin_state
-    SET command    = 'close',
-        command_by = 'auto',
-        command_at = NOW()
-    WHERE bin_id = p_bin_id AND lid_status = 'open';
-  END IF;
+  -- Arduino handles automatic open/close locally.
+  -- The database records presence only; operator commands still use bin_state.command.
 END$$
 
 DELIMITER ;
