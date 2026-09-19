@@ -43,6 +43,7 @@ BIN_ID                = 1
 BIN_HEIGHT            = 30       # cm
 
 DB_HOST = 'localhost'
+DB_PORT = 3307
 DB_NAME = 'intelibin'
 DB_USER = 'root'
 DB_PASS = ''
@@ -60,15 +61,64 @@ def log(msg: str, level: str = 'INFO'):
 # ── DB connection ──────────────────────────────────────────────
 def connect_db():
     return pymysql.connect(
-        host=DB_HOST, database=DB_NAME,
+        host=DB_HOST, port=DB_PORT, database=DB_NAME,
         user=DB_USER, password=DB_PASS,
         autocommit=False, cursorclass=pymysql.cursors.DictCursor
     )
 
 
+def get_bin_height(db) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT height_cm FROM bins WHERE id = %s", (BIN_ID,))
+        row = cur.fetchone()
+    return int(row['height_cm']) if row and row.get('height_cm') else BIN_HEIGHT
+
+
+def confirm_command(db, command: str, outcome: str):
+    with db.cursor() as cur:
+        cur.callproc('confirm_command', (BIN_ID, command, outcome))
+
+        if command == 'reset' and outcome == 'success':
+            cur.callproc('insert_reading', (BIN_ID, 0, get_bin_height(db)))
+    db.commit()
+
+
+def record_person_event(db):
+    with db.cursor() as cur:
+        cur.execute("INSERT INTO person_events (bin_id) VALUES (%s)", (BIN_ID,))
+
+
+def set_lid_status(db, lid_status: str):
+    if lid_status == 'closed':
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM latest_reading WHERE bin_id = %s",
+                (BIN_ID,)
+            )
+            row = cur.fetchone()
+        if row and row.get('status') == 'full':
+            lid_status = 'locked'
+
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE bin_state SET lid_status = %s WHERE bin_id = %s",
+            (lid_status, BIN_ID)
+        )
+    db.commit()
+
+
+def unlock_if_not_full(db):
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE bin_state SET lid_status = 'closed' WHERE bin_id = %s AND lid_status = 'locked'",
+            (BIN_ID,)
+        )
+    db.commit()
+
+
 # ── Fill % from distance ───────────────────────────────────────
-def distance_to_fill(distance_cm: float) -> int:
-    fill = ((BIN_HEIGHT - distance_cm) / BIN_HEIGHT) * 100
+def distance_to_fill(distance_cm: float, bin_height: int) -> int:
+    fill = ((bin_height - distance_cm) / bin_height) * 100
     return max(0, min(100, round(fill)))
 
 
@@ -120,9 +170,7 @@ class CommandPoller(threading.Thread):
                     elif time.time() - self.pending_at > COMMAND_TIMEOUT:
                         # Arduino never responded — mark failed
                         log(f"Command '{cmd}' timed out", 'WARN')
-                        with db.cursor() as cur:
-                            cur.callproc('confirm_command', (BIN_ID, cmd, 'failed'))
-                        db.commit()
+                        confirm_command(db, cmd, 'failed')
                         self.pending = None
 
                 db.close()
@@ -135,12 +183,11 @@ class CommandPoller(threading.Thread):
     def on_arduino_confirmed(self, db, lid_state: str):
         """Called by main thread when Arduino sends LID:OPEN or LID:CLOSED."""
         if not self.pending:
+            set_lid_status(db, lid_state)
             return
         log(f"Arduino confirmed '{self.pending}' → lid is {lid_state}")
         try:
-            with db.cursor() as cur:
-                cur.callproc('confirm_command', (BIN_ID, self.pending, 'success'))
-            db.commit()
+            confirm_command(db, self.pending, 'success')
         except pymysql.Error as e:
             log(f"Failed to confirm command: {e}", 'ERROR')
         self.pending    = None
@@ -158,11 +205,15 @@ def process_line(line: str, db, poller: CommandPoller):
     if line.startswith('DIST:'):
         try:
             dist_cm      = float(line[5:])
-            fill_percent = distance_to_fill(dist_cm)
+            fill_percent = distance_to_fill(dist_cm, get_bin_height(db))
             log(f"Distance: {dist_cm} cm → Fill: {fill_percent}%")
             with db.cursor() as cur:
                 cur.callproc('insert_reading', (BIN_ID, fill_percent, dist_cm))
             db.commit()
+            if fill_percent >= 80:
+                set_lid_status(db, 'locked')
+            else:
+                unlock_if_not_full(db)
             log("✓ Reading saved.")
         except ValueError:
             log(f"Bad DIST value: '{line}'", 'WARN')
@@ -174,6 +225,8 @@ def process_line(line: str, db, poller: CommandPoller):
         try:
             with db.cursor() as cur:
                 cur.callproc('update_person_detection', (BIN_ID, detected))
+            if detected:
+                record_person_event(db)
             db.commit()
         except pymysql.Error as e:
             log(f"Person detection DB error: {e}", 'ERROR')
