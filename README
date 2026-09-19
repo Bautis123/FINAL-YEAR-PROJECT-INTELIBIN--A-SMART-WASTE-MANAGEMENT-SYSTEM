@@ -82,7 +82,7 @@ HC-SR04 Sensor
      ↓
 Arduino Uno  (reads distance, detects person, controls servo lid)
      ↓  USB Serial
-Python Script  (serial_to_mysql.py — receives readings, sends commands)
+Python Script  (python/serial_to_mysql.py — receives readings, sends commands)
      ↓
 MySQL Database  (stores readings, manages alerts, queues commands)
      ↓
