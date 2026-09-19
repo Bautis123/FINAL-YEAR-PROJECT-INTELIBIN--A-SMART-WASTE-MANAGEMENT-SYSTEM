@@ -59,7 +59,10 @@ float measureDistance(int trigPin, int echoPin) {
 
 // ── Open lid ──────────────────────────────────────────────────
 void openLid() {
-  if (lidIsOpen) return;
+  if (lidIsOpen) {
+    Serial.println("LID:OPEN");
+    return;
+  }
   lidServo.write(LID_OPEN_ANGLE);
   delay(500); // give servo time to reach position
   lidIsOpen = true;
@@ -68,7 +71,10 @@ void openLid() {
 
 // ── Close lid ─────────────────────────────────────────────────
 void closeLid() {
-  if (!lidIsOpen) return;
+  if (!lidIsOpen) {
+    Serial.println("LID:CLOSED");
+    return;
+  }
   lidServo.write(LID_CLOSED_ANGLE);
   delay(500);
   lidIsOpen = false;
