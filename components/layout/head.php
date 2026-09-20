@@ -13,7 +13,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <?php endif; ?>
   <link rel="stylesheet" href="/intelibin/assets/css/app.css">
-  <?php if (!empty($extra_css)): ?><link rel="stylesheet" href="<?= e($extra_css) ?>"><?php endif; ?>
+  <?php if (!empty($extra_css)): ?>
+  <link rel="stylesheet" href="<?= e($extra_css) ?>">
+  <?php endif; ?>
   <?= $extra_head ?? '' ?>
+  <?php if ($ib_dashboard_fonts): ?>
+  <script defer src="/intelibin/assets/js/page-transitions.js"></script>
+  <?php endif; ?>
 </head>
 <body>
