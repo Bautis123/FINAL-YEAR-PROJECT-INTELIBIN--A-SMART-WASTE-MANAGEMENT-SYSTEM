@@ -4,6 +4,7 @@ require_admin_login();
 require_once 'pages/controllers/alerts.php';
 require_once 'includes/view.php';
 require_once 'includes/ui.php';
+require_once 'includes/time.php';
 require_once 'components/dashboard/_helpers.php';
 $vm = $vm ?? ib_shell_vm($active_nav ?? 'alerts');
 $extra_css = '/intelibin/assets/css/pages/dashboard.css';
