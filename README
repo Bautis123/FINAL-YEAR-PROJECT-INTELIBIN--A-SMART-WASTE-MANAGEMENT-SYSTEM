@@ -26,7 +26,8 @@ C:/xampp/htdocs/intelibin/
 │   └── command.php             POST — sends open/close/reset command to bin
 │
 ├── arduino/
-│   └── intelibin.ino           Arduino sketch — upload to board via Arduino IDE
+│   └── intelibin/
+│       └── intelibin.ino       Arduino sketch — upload to board via Arduino IDE
 │
 ├── python/
 │   └── serial_to_mysql.py      Runs on PC — reads USB serial, writes to MySQL
@@ -39,8 +40,9 @@ Hardware
 Controller: Arduino Uno R3
 USB: Arduino Uno connects directly to the PC. USB provides power and serial communication at 9600 baud.
 Person detection sensor: HC-SR04, TRIG D9, ECHO D10, VCC 5V, GND GND. Detection threshold: about 15 cm.
-Fill level sensor: HC-SR04, TRIG D4, ECHO D5, VCC 5V, GND GND.
-Servo: signal D6, red 5V, brown GND, orange D6.
+Fill level sensor: HC-SR04, TRIG D4, ECHO D5, VCC 5V, GND GND. Uses median of 7 readings.
+Fill calibration: empty = 20.9 cm, full = 4.0 cm.
+Servo: signal D6, red 5V, brown GND, orange D6. Closed = 90 degrees, open = 180 degrees.
 
 Setup
 1. Database
@@ -66,7 +68,7 @@ Visit http://localhost/intelibin/dashboard.php
 
 3. Arduino
 
-Open arduino/intelibin.ino in Arduino IDE
+Open arduino/intelibin/intelibin.ino in Arduino IDE
 Select board: Arduino Uno
 Select the correct COM port (e.g. COM3)
 Click Upload
@@ -99,11 +101,10 @@ Fill Level Thresholds
 RangeStatusColourAlert0% – 19%ReadyGreenNo20% – 49%FillingBlueNo50% – 79%Almost FullAmberNo80% – 100%FullRedYes
 
 Serial Protocol
-Messages the Arduino sends to the PC:
 Messages the Arduino sends to the PC are newline-delimited JSON:
-{"event":"reading","personDistance":35.2,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
-{"event":"person","personDistance":12.0,"detected":true,"fillDistance":12.5,"fillPercentage":58,"lid":"open"}
-{"event":"lid","personDistance":12.0,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
+{"event":"reading","personDistance":35.2,"fillDistance":8.4,"fillPercentage":74,"lid":"closed"}
+{"event":"person","personDistance":12.0,"detected":true,"fillDistance":8.4,"fillPercentage":74,"lid":"open"}
+{"event":"lid","personDistance":12.0,"fillDistance":8.4,"fillPercentage":74,"lid":"closed"}
 Messages the PC sends to the Arduino:
 MessageMeaningOPENOpen the lidCLOSEClose the lid
 
@@ -114,7 +115,7 @@ Trash collector notifies operator
 Operator opens dashboard → clicks Open Bin
 Dashboard calls api/command.php → stores command in MySQL
 Python script detects command → sends OPEN to Arduino via serial
-Arduino opens lid → sends LID:OPEN back to Python
+Arduino opens lid → sends a JSON lid event back to Python
 Python confirms in MySQL → dashboard updates lid status
 After emptying, operator clicks Reset → lid closes, bin resets to Ready
 

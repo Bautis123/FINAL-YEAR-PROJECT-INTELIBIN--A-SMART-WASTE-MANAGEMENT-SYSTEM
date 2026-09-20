@@ -166,6 +166,10 @@ def process_json_message(payload: dict, db, poller):
         save_fill_reading(db, float(dist_cm), fill_percent)
         return
 
+    if event == 'reading_error':
+        log("Arduino reported insufficient fill sensor readings", 'WARN')
+        return
+
     if event == 'person':
         process_person_detection(db, 1 if payload.get('detected') else 0)
         return

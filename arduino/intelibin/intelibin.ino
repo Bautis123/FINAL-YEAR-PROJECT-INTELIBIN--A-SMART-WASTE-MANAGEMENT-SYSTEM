@@ -9,9 +9,9 @@
  *   USB serial baud:       9600
  *
  * Arduino -> PC protocol: newline-delimited JSON.
- *   {"event":"reading","personDistance":35.2,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
- *   {"event":"person","personDistance":12.0,"detected":true,"fillDistance":12.5,"fillPercentage":58,"lid":"open"}
- *   {"event":"lid","personDistance":12.0,"fillDistance":12.5,"fillPercentage":58,"lid":"closed"}
+ *   {"event":"reading","personDistance":35.2,"fillDistance":8.4,"fillPercentage":74,"lid":"closed"}
+ *   {"event":"person","personDistance":12.0,"detected":true,"fillDistance":8.4,"fillPercentage":74,"lid":"open"}
+ *   {"event":"lid","personDistance":12.0,"fillDistance":8.4,"fillPercentage":74,"lid":"closed"}
  *
  * PC -> Arduino protocol:
  *   OPEN
@@ -26,10 +26,14 @@ const int TRIG_FILL   = 4;
 const int ECHO_FILL   = 5;
 const int SERVO_PIN   = 6;
 
-const int BIN_HEIGHT_CM       = 30;
 const int PERSON_THRESHOLD_CM = 15;
-const int LID_OPEN_ANGLE      = 90;
-const int LID_CLOSED_ANGLE    = 0;
+const int LID_CLOSED_ANGLE    = 90;
+const int LID_OPEN_ANGLE      = 180;
+
+const float EMPTY_DISTANCE_CM = 20.9;
+const float FULL_DISTANCE_CM  = 4.0;
+const int FILL_SAMPLE_COUNT   = 7;
+const int MIN_VALID_SAMPLES   = 5;
 
 const unsigned long FILL_READ_INTERVAL_MS = 300000UL; // 5 minutes
 const unsigned long LID_OPEN_DURATION_MS  = 5000UL;   // 5 seconds
@@ -65,8 +69,45 @@ float measureDistance(int trigPin, int echoPin) {
 
 int distanceToFillPercent(float distanceCm) {
   if (distanceCm < 0) return lastFillPercent;
-  int pct = (int)(((BIN_HEIGHT_CM - distanceCm) / (float)BIN_HEIGHT_CM) * 100);
+  int pct = (int)(((EMPTY_DISTANCE_CM - distanceCm) / (EMPTY_DISTANCE_CM - FULL_DISTANCE_CM)) * 100);
   return constrain(pct, 0, 100);
+}
+
+float medianOf(float values[], int size) {
+  for (int i = 0; i < size - 1; i++) {
+    for (int j = i + 1; j < size; j++) {
+      if (values[j] < values[i]) {
+        float temp = values[i];
+        values[i] = values[j];
+        values[j] = temp;
+      }
+    }
+  }
+
+  return values[size / 2];
+}
+
+bool readMedianDistance(int trigPin, int echoPin, float* distanceCm) {
+  float readings[FILL_SAMPLE_COUNT];
+  int validReadings = 0;
+
+  for (int i = 0; i < FILL_SAMPLE_COUNT; i++) {
+    float distance = measureDistance(trigPin, echoPin);
+
+    if (distance > 0) {
+      readings[validReadings] = distance;
+      validReadings++;
+    }
+
+    delay(50);
+  }
+
+  if (validReadings < MIN_VALID_SAMPLES) {
+    return false;
+  }
+
+  *distanceCm = medianOf(readings, validReadings);
+  return true;
 }
 
 void printNullableDistance(float value) {
@@ -133,17 +174,22 @@ void processCommand(String cmd) {
 }
 
 void readFillLevel() {
-  lastFillDistance = measureDistance(TRIG_FILL, ECHO_FILL);
-  if (lastFillDistance > 0) {
-    lastFillPercent = distanceToFillPercent(lastFillDistance);
-    binFull = lastFillPercent >= 80;
+  float medianDistance = -1;
 
-    if (binFull && lidIsOpen) {
-      closeLid();
-    }
-
-    sendStatus("reading", false, false);
+  if (!readMedianDistance(TRIG_FILL, ECHO_FILL, &medianDistance)) {
+    sendStatus("reading_error", false, false);
+    return;
   }
+
+  lastFillDistance = medianDistance;
+  lastFillPercent = distanceToFillPercent(lastFillDistance);
+  binFull = lastFillPercent >= 80;
+
+  if (binFull && lidIsOpen) {
+    closeLid();
+  }
+
+  sendStatus("reading", false, false);
 }
 
 void pollPersonSensor() {
