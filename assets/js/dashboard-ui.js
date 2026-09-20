@@ -151,6 +151,10 @@
       return { key: 'ready', label: 'Ready' };
     }
     const isLive = () => S.fill != null;
+    const isConnected = () => {
+      const d = S.device || {};
+      return d.sensorOnline === true || d.controllerOnline === true;
+    };
 
     /* ---------- bin drawing ---------- */
     const el = {
@@ -485,9 +489,10 @@
       if (tl) { tl.setAttribute('y1', ty); tl.setAttribute('y2', ty); }
       if (tt) { tt.setAttribute('y', ty + 4); tt.textContent = 'Alert ' + A + '%'; }
 
+      const connected = isConnected();
       const conn = $('conn');
-      if (conn) conn.dataset.ibS = live ? 'ready' : 'idle';
-      setText('connText', live ? 'Live' : 'Waiting for data');
+      if (conn) conn.dataset.ibS = connected ? 'ready' : 'idle';
+      setText('connText', connected ? 'Live' : 'Offline');
 
       const svg = $('binSvg');
       if (live) {

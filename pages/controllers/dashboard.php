@@ -25,6 +25,16 @@ $lidStatus = $initial['lid_status'] ?? null;
 $lastReadingTs = !empty($initial['recorded_at']) ? strtotime($initial['recorded_at']) : null;
 $now = time();
 
+$lastSeenTs = null;
+try {
+  $stmt = $pdo->prepare("SELECT last_seen_at FROM bin_state WHERE bin_id = :id");
+  $stmt->execute([':id' => $binId]);
+  $stateRow = $stmt->fetch() ?: [];
+  $lastSeenTs = !empty($stateRow['last_seen_at']) ? strtotime($stateRow['last_seen_at']) : null;
+} catch (Throwable $e) {
+  $lastSeenTs = null;
+}
+
 $stmt = $pdo->prepare("
   SELECT fill_percent, recorded_at
   FROM readings
@@ -75,7 +85,7 @@ foreach ($commandRows as $cmd) {
   ];
 }
 
-$hasRecentReading = $lastReadingTs !== null && ($now - $lastReadingTs) <= 10 * 60;
+$hasRecentSignal = $lastSeenTs !== null && ($now - $lastSeenTs) <= 20;
 $pipelineState = $fill === null ? 'idle' : ($fill >= 95 ? 'full' : ($fill >= 80 ? 'almost' : ($fill >= 60 ? 'filling' : 'ready')));
 
 $bins = [];
@@ -109,16 +119,16 @@ $vm = [
   'visits_today' => $visitorsToday,
   'visits_all' => $visitorsTotal,
   'device' => [
-    'sensor_online' => $hasRecentReading,
-    'controller_online' => $hasRecentReading,
+    'sensor_online' => $hasRecentSignal,
+    'controller_online' => $hasRecentSignal,
     'sensor_label' => 'HC-SR04 pair',
     'controller_label' => 'Arduino Uno',
   ],
   'history' => $history,
   'events' => $events,
   'pipeline' => [
-    ['label' => 'Arduino Uno', 'detail' => $hasRecentReading ? 'Serial active' : 'Waiting for reading', 'state' => $hasRecentReading ? 'ready' : 'idle'],
-    ['label' => 'USB Serial', 'detail' => 'Python bridge', 'state' => $hasRecentReading ? 'ready' : 'idle'],
+    ['label' => 'Arduino Uno', 'detail' => $hasRecentSignal ? 'Serial active' : 'No recent signal', 'state' => $hasRecentSignal ? 'ready' : 'idle'],
+    ['label' => 'USB Serial', 'detail' => 'Python bridge', 'state' => $hasRecentSignal ? 'ready' : 'idle'],
     ['label' => 'MySQL DB', 'detail' => $totalReadings . ' readings', 'state' => $pipelineState],
     ['label' => 'Dashboard', 'detail' => 'Live polling', 'state' => $pipelineState],
   ],

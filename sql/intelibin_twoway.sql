@@ -28,6 +28,7 @@ CREATE TABLE bin_state (
   command_at          TIMESTAMP    NULL DEFAULT NULL,   -- when it was issued
   command_executed_at TIMESTAMP    NULL DEFAULT NULL,   -- when Python confirmed it
   person_detected     TINYINT(1)   NOT NULL DEFAULT 0,  -- 1 = someone is near the bin
+  last_seen_at         TIMESTAMP    NULL DEFAULT NULL,   -- last Arduino heartbeat/status
   last_updated        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
                                    ON UPDATE CURRENT_TIMESTAMP,
 
@@ -98,6 +99,7 @@ CREATE VIEW latest_reading AS
     bs.lid_status,
     bs.command,
     bs.person_detected,
+    bs.last_seen_at,
     bs.last_updated  AS state_updated_at
   FROM bins b
   LEFT JOIN readings r ON r.id = (

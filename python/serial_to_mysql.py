@@ -38,7 +38,7 @@ import json
 from datetime import datetime
 
 # ── Config ─────────────────────────────────────────────────────
-SERIAL_PORT           = 'COM3'   # Windows: COM3, COM4. Linux: /dev/ttyUSB0
+SERIAL_PORT           = 'COM8'   # Windows: COM8, COM4. Linux: /dev/ttyUSB0
 BAUD_RATE             = 9600
 BIN_ID                = 1
 BIN_HEIGHT            = 30       # cm
@@ -87,6 +87,15 @@ def confirm_command(db, command: str, outcome: str):
 def record_person_event(db):
     with db.cursor() as cur:
         cur.execute("INSERT INTO person_events (bin_id) VALUES (%s)", (BIN_ID,))
+
+
+def touch_bin_state(db):
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE bin_state SET last_seen_at = CURRENT_TIMESTAMP WHERE bin_id = %s",
+            (BIN_ID,)
+        )
+    db.commit()
 
 
 def set_lid_status(db, lid_status: str):
@@ -156,6 +165,12 @@ def process_person_detection(db, detected: int):
 
 def process_json_message(payload: dict, db, poller):
     event = str(payload.get('event', '')).lower()
+
+    if event in ('heartbeat', 'ready', 'reading', 'reading_error', 'person', 'lid'):
+        touch_bin_state(db)
+
+    if event == 'heartbeat':
+        return
 
     if event == 'reading':
         dist_cm = payload.get('fillDistance')

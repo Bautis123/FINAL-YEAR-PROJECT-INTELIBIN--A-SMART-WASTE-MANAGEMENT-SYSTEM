@@ -9,6 +9,7 @@
  *   USB serial baud:       9600
  *
  * Arduino -> PC protocol: newline-delimited JSON.
+ *   {"event":"heartbeat","personDistance":35.2,"fillDistance":8.4,"fillPercentage":74,"lid":"closed"}
  *   {"event":"reading","personDistance":35.2,"fillDistance":8.4,"fillPercentage":74,"lid":"closed"}
  *   {"event":"person","personDistance":12.0,"detected":true,"fillDistance":8.4,"fillPercentage":74,"lid":"open"}
  *   {"event":"lid","personDistance":12.0,"fillDistance":8.4,"fillPercentage":74,"lid":"closed"}
@@ -36,6 +37,7 @@ const int FILL_SAMPLE_COUNT   = 7;
 const int MIN_VALID_SAMPLES   = 5;
 
 const unsigned long FILL_READ_INTERVAL_MS = 300000UL; // 5 minutes
+const unsigned long HEARTBEAT_INTERVAL_MS = 5000UL;   // connection status
 const unsigned long LID_OPEN_DURATION_MS  = 5000UL;   // 5 seconds
 const unsigned long PERSON_POLL_MS        = 100UL;
 
@@ -52,6 +54,7 @@ int lastFillPercent = 0;
 
 unsigned long lidCloseAt = 0;
 unsigned long lastFillReadAt = 0;
+unsigned long lastHeartbeatAt = 0;
 unsigned long lastPersonPollAt = 0;
 
 float measureDistance(int trigPin, int echoPin) {
@@ -227,6 +230,7 @@ void setup() {
 
   readFillLevel();
   lastFillReadAt = millis();
+  lastHeartbeatAt = millis();
   sendStatus("ready", false, false);
 }
 
@@ -245,6 +249,11 @@ void loop() {
 
   if (lidIsOpen && lidCloseAt > 0 && now >= lidCloseAt) {
     closeLid();
+  }
+
+  if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS || lastHeartbeatAt == 0) {
+    lastHeartbeatAt = now;
+    sendStatus("heartbeat", false, false);
   }
 
   if (now - lastFillReadAt >= FILL_READ_INTERVAL_MS || lastFillReadAt == 0) {
