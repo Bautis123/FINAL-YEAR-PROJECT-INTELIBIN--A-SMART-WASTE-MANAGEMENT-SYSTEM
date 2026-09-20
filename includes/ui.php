@@ -14,6 +14,12 @@ function fillColour(int $pct): string {
 }
 }
 
+if (!function_exists('fillDisplay')) {
+function fillDisplay(mixed $pct, bool $hasReading = true): string {
+  return $hasReading ? ((int)$pct . '%') : 'No readings';
+}
+}
+
 if (!function_exists('fillBg')) {
 function fillBg(int $pct): string {
   if ($pct >= 80) return 'linear-gradient(to top,#fca5a5,#f87171)';
@@ -25,19 +31,19 @@ function fillBg(int $pct): string {
 
 if (!function_exists('statusLabel')) {
 function statusLabel(string $s): string {
-  return match($s) { 'full'=>'Full','almost_full'=>'Almost Full','filling'=>'Filling', default=>'Ready' };
+  return match($s) { 'full'=>'Full','almost_full'=>'Almost Full','filling'=>'Filling','idle'=>'No data', default=>'Ready' };
 }
 }
 
 if (!function_exists('statusBadge')) {
 function statusBadge(string $s): string {
-  return match($s) { 'full'=>'b-red','almost_full'=>'b-amber','filling'=>'b-blue', default=>'b-green' };
+  return match($s) { 'full'=>'b-red','almost_full'=>'b-amber','filling'=>'b-blue','idle'=>'b-idle', default=>'b-green' };
 }
 }
 
 if (!function_exists('chipClass')) {
 function chipClass(string $s): string {
-  return match($s) { 'full'=>'c-crit','almost_full'=>'c-warn','filling'=>'c-info', default=>'c-ok' };
+  return match($s) { 'full'=>'c-crit','almost_full'=>'c-warn','filling'=>'c-info','idle'=>'c-idle', default=>'c-ok' };
 }
 }
 

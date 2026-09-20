@@ -25,14 +25,15 @@
 
   <div class="bins-grid rise d2">
     <?php foreach ($bins as $bin): ?>
-    <?php $pct = (int)($bin['fill_percent'] ?? 0); ?>
-    <?php $status = $bin['status'] ?? 'ready'; ?>
+    <?php $hasReading = $bin['last_reading'] !== null; ?>
+    <?php $pct = $hasReading ? (int)$bin['fill_percent'] : 0; ?>
+    <?php $status = $hasReading ? ($bin['status'] ?? 'ready') : 'idle'; ?>
 
     <div class="card bin-tile">
       <div class="bin-tile-header">
         <div>
           <div class="bin-tile-name"><?= e($bin['name']) ?></div>
-          <div class="bin-tile-location"><?= e($bin['location'] ?: 'No location set') ?></div>
+          <div class="bin-tile-location">Bin #<?= (int)$bin['id'] ?> · <?= e($bin['location'] ?: 'No location set') ?></div>
         </div>
         <?php partial('shared/status_badge.php', compact('status')); ?>
       </div>
@@ -40,7 +41,7 @@
       <div class="meta-table">
         <div class="meta-row">
           <span class="meta-key">Fill level</span>
-          <span class="meta-val" style="color:<?= fillColour($pct) ?>"><?= $pct ?>%</span>
+          <span class="meta-val" style="color:<?= $hasReading ? fillColour($pct) : 'var(--ib-ink-3)' ?>"><?= e(fillDisplay($pct, $hasReading)) ?></span>
         </div>
         <div class="meta-row">
           <span class="meta-key">Height</span>
@@ -54,14 +55,26 @@
         </div>
       </div>
 
-      <form method="POST" class="inline-form">
+      <form method="POST" class="bin-edit-form">
         <input type="hidden" name="action" value="edit_bin">
         <input type="hidden" name="bin_id" value="<?= (int)$bin['id'] ?>">
-        <input type="text" name="name" value="<?= e($bin['name']) ?>" required>
-        <input type="text" name="location" value="<?= e($bin['location']) ?>">
-        <input type="number" name="height_cm" min="5" max="200" value="<?= (int)$bin['height_cm'] ?>" required>
-        <button class="btn btn-primary">Save</button>
-        <button class="btn btn-danger" name="action" value="delete_bin">Delete</button>
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" name="name" value="<?= e($bin['name']) ?>" required>
+        </div>
+        <div class="form-group">
+          <label>Location</label>
+          <input type="text" name="location" value="<?= e($bin['location']) ?>">
+        </div>
+        <div class="form-group">
+          <label>Height</label>
+          <input type="number" name="height_cm" min="5" max="200" value="<?= (int)$bin['height_cm'] ?>" required>
+        </div>
+        <div class="bin-actions">
+          <a class="btn btn-ghost" href="/intelibin/dashboard.php?bin_id=<?= (int)$bin['id'] ?>">View</a>
+          <button class="btn btn-primary">Save</button>
+          <button class="btn btn-danger" name="action" value="delete_bin">Delete</button>
+        </div>
       </form>
     </div>
     <?php endforeach; ?>
