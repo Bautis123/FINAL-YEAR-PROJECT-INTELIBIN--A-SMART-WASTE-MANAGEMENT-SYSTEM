@@ -151,8 +151,3 @@ $vm = [
 $page_title = 'Dashboard';
 $active_nav = 'dashboard';
 $extra_css = '/intelibin/assets/css/pages/dashboard.css';
-$extra_head = '
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Hanken+Grotesk:wght@400..700&display=swap" rel="stylesheet">
-';
