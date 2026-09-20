@@ -206,7 +206,7 @@
         }
       }
 
-      const st = empty ? IDLE : statusOf(p);
+      const st = !isConnected() ? { key: 'idle', label: 'Offline' } : (empty ? IDLE : statusOf(p));
       if (st.key !== curKey) { curKey = st.key; el.hero.dataset.ibS = st.key; el.pill.textContent = st.label; }
       el.bigBox.classList.toggle('ib-is-empty', empty);
       const big = empty ? '–' : String(Math.round(p));
@@ -497,7 +497,7 @@
       const svg = $('binSvg');
       if (live) {
         if (el.pct) el.pct.style.display = '';
-        setText('fillNote', 'of capacity used');
+        setText('fillNote', isConnected() ? 'of capacity used' : 'last recorded capacity used');
         if (svg) svg.setAttribute('aria-label', 'Bin is ' + Math.round(S.fill) + '% full. The sensor reads ' + Math.round(dist(S.fill)) + ' centimetres to the waste.');
         if (chartWrap) chartWrap.setAttribute('aria-label', 'Fill level over time. Currently ' + Math.round(S.fill) + '% full.');
       } else {

@@ -2,7 +2,8 @@
 /** components/dashboard/bin_card.php | the hero: bin drawing, big fill number, status pill and stats */
 require_once __DIR__ . '/_helpers.php';
 $ib_live = $vm['fill'] !== null;
-$ib_st   = ib_status($ib_live ? (float)$vm['fill'] : null, (int)$vm['bin']['alert_at']);
+$ib_connected = ($vm['device']['sensor_online'] ?? false) || ($vm['device']['controller_online'] ?? false);
+$ib_st   = $ib_connected ? ib_status($ib_live ? (float)$vm['fill'] : null, (int)$vm['bin']['alert_at']) : ['key' => 'idle', 'label' => 'Offline'];
 ?>
 <section class="ib-hero" data-ib="hero" data-ib-s="<?= $ib_st['key'] ?>" aria-label="Current bin status">
   <?php include __DIR__ . '/bin_visual.php'; ?>
@@ -16,7 +17,7 @@ $ib_st   = ib_status($ib_live ? (float)$vm['fill'] : null, (int)$vm['bin']['aler
     </div>
     <div class="ib-hero-read">
       <div class="ib-big<?= $ib_live ? '' : ' ib-is-empty' ?>" data-ib="bigBox"><span data-ib="fillBig"><?= $ib_live ? (int)round($vm['fill']) : '–' ?></span><small data-ib="fillPct"<?= $ib_live ? '' : ' style="display:none"' ?>>%</small></div>
-      <p data-ib="fillNote"><?= $ib_live ? 'of capacity used' : 'Waiting for the first reading from the sensor.' ?></p>
+      <p data-ib="fillNote"><?= $ib_live ? ($ib_connected ? 'of capacity used' : 'last recorded capacity used') : 'Waiting for the first reading from the sensor.' ?></p>
     </div>
     <?php include __DIR__ . '/stats.php'; ?>
   </div>
