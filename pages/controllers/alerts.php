@@ -38,4 +38,5 @@ $resolved = $pdo->query("
 ")->fetchAll();
 
 $page_title = 'Alerts';
+$page_subtitle = 'Full bin events, open alerts, and response records';
 $active_nav = 'alerts';

@@ -37,4 +37,5 @@ $readings = $stmt->fetchAll();
 $bins = $pdo->query("SELECT id, name FROM bins ORDER BY id")->fetchAll();
 
 $page_title = 'History';
+$page_subtitle = 'All sensor readings, filters, and export records';
 $active_nav = 'history';

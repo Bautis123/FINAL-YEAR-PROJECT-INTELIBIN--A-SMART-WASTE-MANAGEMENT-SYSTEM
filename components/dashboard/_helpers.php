@@ -40,6 +40,33 @@ function ib_default_nav(): array {
     ];
 }
 
+function ib_app_nav(string $active = 'dashboard', ?float $fill = null, int $alertAt = 80): array {
+    $items = [
+        ['id' => 'dashboard', 'label' => 'Dashboard', 'href' => '/intelibin/dashboard.php', 'icon' => 'dash'],
+        ['id' => 'bins', 'label' => 'Bins', 'href' => '/intelibin/bins.php', 'icon' => 'bin'],
+        ['id' => 'history', 'label' => 'History', 'href' => '/intelibin/history.php', 'icon' => 'hist'],
+        ['id' => 'alerts', 'label' => 'Alerts', 'href' => '/intelibin/alerts.php', 'icon' => 'bell', 'badge' => ($fill !== null && $fill >= $alertAt)],
+        ['id' => 'settings', 'label' => 'Settings', 'href' => '/intelibin/settings.php', 'icon' => 'sliders'],
+        ['id' => 'about', 'label' => 'About', 'href' => '/intelibin/about.php', 'icon' => 'info'],
+    ];
+    foreach ($items as &$item) $item['current'] = $item['id'] === $active;
+    return $items;
+}
+
+function ib_shell_vm(string $active = 'dashboard', array $overrides = []): array {
+    $fill = $overrides['fill'] ?? null;
+    $alertAt = (int)($overrides['bin']['alert_at'] ?? 80);
+    return array_replace_recursive([
+        'fill' => $fill,
+        'bin' => ['id' => 1, 'name' => 'InteliBin #1', 'location' => '', 'height_cm' => 30, 'dead_zone_cm' => 4, 'alert_at' => $alertAt],
+        'device' => ['sensor_online' => false, 'controller_online' => false, 'sensor_label' => 'HC-SR04 pair', 'controller_label' => 'Arduino Uno'],
+        'nav' => ib_app_nav($active, $fill, $alertAt),
+        'home_href' => '/intelibin/dashboard.php',
+        'logout_href' => '/intelibin/logout.php',
+        'now' => time(),
+    ], $overrides);
+}
+
 /* ---------- status, distance, formatting (mirrors dashboard-ui.js) ---------- */
 function ib_status(?float $p, int $alertAt = 80): array {
     if ($p === null) return ['key' => 'idle',    'label' => 'Waiting for data'];

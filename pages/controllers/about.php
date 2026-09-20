@@ -8,4 +8,5 @@ $firstReading = $pdo->query("SELECT MIN(recorded_at) FROM readings")->fetchColum
 $lastReading = $pdo->query("SELECT MAX(recorded_at) FROM readings")->fetchColumn();
 
 $page_title = 'About';
+$page_subtitle = 'System overview, data pipeline, and hardware specifications';
 $active_nav = 'about';

@@ -24,4 +24,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
 $bins = $pdo->query("SELECT * FROM bins ORDER BY id")->fetchAll();
 
 $page_title = 'Settings';
+$page_subtitle = 'Configure bin details and system preferences';
 $active_nav = 'settings';

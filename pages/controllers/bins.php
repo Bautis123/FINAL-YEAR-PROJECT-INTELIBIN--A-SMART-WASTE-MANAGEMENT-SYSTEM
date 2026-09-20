@@ -42,4 +42,5 @@ $bins = $pdo->query("
 ")->fetchAll();
 
 $page_title = 'Bins';
+$page_subtitle = 'Fill levels, emptying history, and bin management';
 $active_nav = 'bins';
