@@ -12,10 +12,10 @@ $ib_mCountSub = 'No readings yet';
 $ib_mEmpty = '–'; $ib_mEmptySub = 'Nothing recorded';
 if ($ib_live) {
     if ($ib_rate === null)      { $ib_mRate = '–'; $ib_mRateSub = 'Just emptied'; $ib_mFull = '–'; $ib_mFullSub = 'Needs more readings'; }
-    elseif ($ib_rate < 0.05)    { $ib_mRate = 'Steady'; $ib_mRateSub = 'since last emptied'; $ib_mFull = '> 2 days'; $ib_mFullSub = 'at the average rate'; }
+    elseif ($ib_rate < 0.01)    { $ib_mRate = 'Steady'; $ib_mRateSub = 'since last emptied'; $ib_mFull = '> 2 days'; $ib_mFullSub = 'at the average rate'; }
     else {
-        $ib_h = $vm['hours_to_full'] ?? (100 - $vm['fill']) / $ib_rate;
-        $ib_mRate = '+' . number_format($ib_rate, 1) . '%/h'; $ib_mRateSub = 'since last emptied';
+        $ib_h = $vm['hours_to_full'] ?? ((100 - $vm['fill']) / $ib_rate) / 60;
+        $ib_mRate = '+' . number_format($ib_rate, 1) . '%/min'; $ib_mRateSub = 'since last emptied';
         $ib_mFull = ib_dur((float)$ib_h); $ib_mFullSub = 'at the average rate';
     }
     $ib_mCountSub = $ib_last !== null ? 'Last one ' . ib_rel($ib_now - $ib_last) : 'No readings yet';
