@@ -16,11 +16,12 @@
    {
      bin:      { id, name, location, heightCm, deadZoneCm, alertAt },
      fill:     57.4 | null,             // latest fill %, null = no readings yet
+     distanceCm: 8.4 | null,            // latest measured distance from fill sensor
      totalReadings, lastReadingAt,
      lid:      'open' | 'closed' | null,
      visitsToday, visitsAll,
      device:   { sensorOnline, controllerOnline, sensorLabel, controllerLabel },
-     history:  [{ t, p, empty? }],      // ascending. "empty" is inferred from a drop of 25+ points
+     history:  [{ t, p, d?, empty? }],  // ascending. "empty" is inferred from a drop of 25+ points
      events:   [{ t, kind, title, detail }],   // omit to derive from history
      fillRate, hoursToFull, lastEmptiedAt      // omit to derive from history
    }
@@ -29,6 +30,7 @@
   'use strict';
 
   const MIN = 60000, HOUR = 3600000;
+  const FILL_SETTLE_MS = 5000;
   const RANGES = { '6h': 6 * HOUR, '24h': 24 * HOUR, '7d': 168 * HOUR };
   const RANGE_LABEL = { '6h': 'Last 6 hours', '24h': 'Last 24 hours', '7d': 'Last 7 days' };
   const CX = 180, SY0 = 124, FLOOR = 436, PER = 3;      // bin drawing geometry (viewBox units)
@@ -82,7 +84,7 @@
 
   /* ---------- history helpers ---------- */
   function normalizeHistory(list) {
-    const h = (list || []).map(x => ({ t: +x.t, p: +x.p, empty: x.empty }))
+    const h = (list || []).map(x => ({ t: +x.t, p: +x.p, d: x.d == null ? null : +x.d, empty: x.empty }))
       .filter(x => isFinite(x.t) && isFinite(x.p))
       .sort((a, b) => a.t - b.t);
     h.forEach((x, i) => {
@@ -100,24 +102,24 @@
     let i = h.length - 1;
     while (i > 0 && !h[i].empty) i--;
     const start = h[i];
-    const hrs = (last.t - start.t) / HOUR;
-    out.fillRate = hrs >= 1 ? (last.p - start.p) / hrs : null;
-    out.hoursToFull = (out.fillRate != null && out.fillRate >= 0.05) ? (100 - last.p) / out.fillRate : Infinity;
+    const mins = (last.t - start.t) / MIN;
+    out.fillRate = mins >= 1 ? (last.p - start.p) / mins : null;
+    out.hoursToFull = (out.fillRate != null && out.fillRate >= 0.01) ? ((100 - last.p) / out.fillRate) / 60 : Infinity;
     out.lastEmptiedAt = null;
     for (let k = h.length - 1; k >= 0; k--) if (h[k].empty) { out.lastEmptiedAt = h[k].t; break; }
 
-    let armed80 = h[0].p < alertAt, armed95 = h[0].p < 95;
+    let armed50 = h[0].p < 50, armed80 = h[0].p < alertAt;
     for (let k = 1; k < h.length; k++) {
       const a = h[k - 1], b = h[k];
       if (b.empty) {
         out.events.push({ t: b.t, kind: 'emptied', title: 'Bin emptied', detail: 'Fill dropped from ' + Math.round(a.p) + '% to ' + Math.round(b.p) + '%' });
-        armed80 = armed95 = true;
+        armed50 = armed80 = true;
         continue;
       }
-      if (armed80 && b.p >= alertAt) { out.events.push({ t: b.t, kind: 'almost', title: 'Passed ' + alertAt + '% full', detail: 'Collection needed soon' }); armed80 = false; }
+      if (armed50 && b.p >= 50) { out.events.push({ t: b.t, kind: 'almost', title: 'Passed 50% full', detail: 'Bin is filling up' }); armed50 = false; }
+      else if (!armed50 && b.p < 45) armed50 = true;
+      if (armed80 && b.p >= alertAt) { out.events.push({ t: b.t, kind: 'full', title: 'Bin is full', detail: 'Collect as soon as possible' }); armed80 = false; }
       else if (!armed80 && b.p < alertAt - 5) armed80 = true;
-      if (armed95 && b.p >= 95) { out.events.push({ t: b.t, kind: 'full', title: 'Bin is full', detail: 'Collect as soon as possible' }); armed95 = false; }
-      else if (!armed95 && b.p < 90) armed95 = true;
     }
     out.events = out.events.reverse().slice(0, 5);
     return out;
@@ -137,17 +139,19 @@
 
     let S = {
       bin: { id: 1, name: 'InteliBin', location: '', heightCm: 30, deadZoneCm: 3, alertAt: 80 },
-      fill: null, totalReadings: 0, lastReadingAt: null, lid: null, visitsToday: 0, visitsAll: 0,
+      fill: null, distanceCm: null, totalReadings: 0, lastReadingAt: null, lid: null, visitsToday: 0, visitsAll: 0,
       device: null, history: [], events: undefined,
       range: '24h', disp: 0, target: 0
     };
 
     const dist = p => S.bin.deadZoneCm + (100 - p) / 100 * (S.bin.heightCm - S.bin.deadZoneCm);
+    const displayDist = x => x && x.d != null && isFinite(x.d) ? x.d : dist(x.p);
+    const currentDist = () => S.distanceCm != null && isFinite(S.distanceCm) ? S.distanceCm : dist(S.fill || 0);
     const IDLE = { key: 'idle', label: 'Waiting for data' };
     function statusOf(p) {
-      if (p >= 95) return { key: 'full', label: 'Full' };
-      if (p >= S.bin.alertAt) return { key: 'almost', label: 'Almost full' };
-      if (p >= 60) return { key: 'filling', label: 'Filling up' };
+      if (p >= S.bin.alertAt) return { key: 'full', label: 'Full' };
+      if (p >= 50) return { key: 'almost', label: 'Almost full' };
+      if (p >= 20) return { key: 'filling', label: 'Filling up' };
       return { key: 'ready', label: 'Ready' };
     }
     const isLive = () => S.fill != null;
@@ -191,7 +195,7 @@
         el.capB.setAttribute('y2', y2.toFixed(1));
         el.echo.setAttribute('cy', y2.toFixed(1));
         el.chip.setAttribute('transform', 'translate(180 ' + ((132 + y2) / 2).toFixed(1) + ')');
-        const dd = Math.round(dist(p)) + ' cm';
+        const dd = currentDist().toFixed(1) + ' cm';
         if (dd !== lastDim) { el.dimText.textContent = dd; lastDim = dd; }
       }
 
@@ -253,10 +257,10 @@
       const lastEmptiedAt = ('lastEmptiedAt' in S) ? S.lastEmptiedAt : d.lastEmptiedAt;
 
       if (rate == null) { setText('mRate', '–'); setText('mRateSub', 'Just emptied'); setText('mFull', '–'); setText('mFullSub', 'Needs more readings'); }
-      else if (rate < 0.05) { setText('mRate', 'Steady'); setText('mRateSub', 'since last emptied'); setText('mFull', '> 2 days'); setText('mFullSub', 'at the average rate'); }
+      else if (rate < 0.01) { setText('mRate', 'Steady'); setText('mRateSub', 'since last emptied'); setText('mFull', '> 2 days'); setText('mFullSub', 'at the average rate'); }
       else {
-        const hrs = (S.hoursToFull != null) ? S.hoursToFull : (100 - S.fill) / rate;
-        setText('mRate', '+' + rate.toFixed(1) + '%/h'); setText('mRateSub', 'since last emptied');
+        const hrs = (S.hoursToFull != null) ? S.hoursToFull : ((100 - S.fill) / rate) / 60;
+        setText('mRate', '+' + rate.toFixed(1) + '%/min'); setText('mRateSub', 'since last emptied');
         setText('mFull', dur(hrs)); setText('mFullSub', 'at the average rate');
       }
 
@@ -281,7 +285,7 @@
       }
       tb.innerHTML = S.history.slice(-8).reverse().map(x => {
         const st = statusOf(x.p);
-        return '<tr data-ib-s="' + st.key + '"><td>' + tf(x.t, true) + '</td><td>' + Math.round(dist(x.p)) + ' cm</td>' +
+        return '<tr data-ib-s="' + st.key + '"><td>' + tf(x.t, true) + '</td><td>' + displayDist(x).toFixed(1) + ' cm</td>' +
           '<td><span class="ib-bar"><span style="width:' + x.p.toFixed(0) + '%"></span></span>' + x.p.toFixed(0) + '%</td>' +
           '<td><span class="ib-pill ib-sm"><i></i>' + st.label + '</span></td></tr>';
       }).join('');
@@ -305,6 +309,31 @@
     const chartWrap = $('chartWrap'), chartSvg = $('chartSvg'), tip = $('tip');
     const curLine = $('curLine'), curDot = $('curDot'), chartEmpty = $('chartEmpty');
     let R = null;
+
+    function chartPoints(raw) {
+      if (S.range === '6h') return raw;
+      const bucketMs = S.range === '24h' ? 10 * MIN : HOUR;
+      const buckets = new Map();
+      raw.forEach(x => {
+        const key = Math.floor(x.t / bucketMs) * bucketMs;
+        const b = buckets.get(key) || { t: 0, sum: 0, count: 0, empty: false, d: null };
+        b.t = x.t;
+        b.sum += x.p;
+        b.count += 1;
+        b.empty = b.empty || x.empty;
+        b.d = x.d == null ? b.d : x.d;
+        buckets.set(key, b);
+      });
+      const pts = Array.from(buckets.values()).map(b => ({
+        t: b.t,
+        p: b.sum / b.count,
+        d: b.d,
+        empty: b.empty
+      }));
+      const last = raw[raw.length - 1];
+      if (last && (!pts.length || pts[pts.length - 1].t !== last.t)) pts.push(last);
+      return pts;
+    }
 
     function renderChart() {
       if (!chartWrap) return;
@@ -347,18 +376,22 @@
       g += '<line class="ib-thr" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(A) + '" y2="' + Y(A) + '"/>' +
            '<text class="ib-thr-label" x="' + (W - m.r - 4) + '" y="' + (Y(A) - 6) + '" text-anchor="end">Alert at ' + A + '%</text>';
 
-      const pts = isLive() ? S.history.filter(x => x.t >= t0) : [];
+      const rawPts = isLive() ? S.history.filter(x => x.t >= t0) : [];
+      const pts = chartPoints(rawPts);
       if (pts.length > 1) {
         let d = '';
         pts.forEach((q, i) => { d += (i ? 'L' : 'M') + X(q.t).toFixed(1) + ' ' + Y(q.p).toFixed(1); });
         const lastPt = pts[pts.length - 1];
         g += '<path d="' + d + 'L' + X(lastPt.t).toFixed(1) + ' ' + Y(0) + 'L' + X(pts[0].t).toFixed(1) + ' ' + Y(0) + 'Z" fill="url(#ib-ag)"/>';
         g += '<path class="ib-line" d="' + d + '"/>';
+        const latestEmpty = pts.slice().reverse().find(q => q.empty);
         pts.forEach(q => {
           if (q.empty) {
             const x = X(q.t).toFixed(1);
-            g += '<line class="ib-emp" x1="' + x + '" x2="' + x + '" y1="' + m.t + '" y2="' + (m.t + ih) + '"/>' +
-                 '<text class="ib-emp-t" x="' + (+x + 6) + '" y="' + (m.t + 12) + '">Emptied</text>';
+            g += '<line class="ib-emp" x1="' + x + '" x2="' + x + '" y1="' + m.t + '" y2="' + (m.t + ih) + '"/>';
+            if (latestEmpty && q.t === latestEmpty.t) {
+              g += '<text class="ib-emp-t" x="' + (+x + 6) + '" y="' + (m.t + 12) + '">Emptied</text>';
+            }
           }
         });
         g += '<g data-ib-s="' + statusOf(lastPt.p).key + '"><circle class="ib-halo" cx="' + X(lastPt.t).toFixed(1) + '" cy="' + Y(lastPt.p).toFixed(1) + '" r="10"/>' +
@@ -384,7 +417,7 @@
       curLine.style.cssText = 'display:block;left:' + x + 'px;top:' + R.m.t + 'px;height:' + R.ih + 'px';
       curDot.dataset.ibS = statusOf(pt.p).key;
       curDot.style.cssText = 'display:block;left:' + x + 'px;top:' + y + 'px';
-      tip.innerHTML = '<b>' + pt.p.toFixed(0) + '% full</b><span>' + Math.round(dist(pt.p)) + ' cm from the sensor</span><span>' + when(pt.t) + '</span>' + (pt.empty ? '<span>Bin emptied here</span>' : '');
+      tip.innerHTML = '<b>' + pt.p.toFixed(0) + '% full</b><span>' + displayDist(pt).toFixed(1) + ' cm from the sensor</span><span>' + when(pt.t) + '</span>' + (pt.empty ? '<span>Bin emptied here</span>' : '');
       tip.style.display = 'block';
       let tx = x + 14;
       if (tx + tip.offsetWidth > R.W - 4) tx = x - 14 - tip.offsetWidth;
@@ -422,12 +455,34 @@
     const cmdMsg = $('cmdMsg');
     let lastMsg = { text: cmdMsg ? cmdMsg.textContent : '', kind: '', time: '' };
     let busy = false, confirming = null, confirmTimer = null;
+    let fillCountdownUntil = 0;
+    let fillCountdownBaseReadingAt = null;
 
     function showMsg(text, kind, time, remember) {
       if (!cmdMsg) return;
       cmdMsg.className = 'ib-cmd-msg' + (kind ? ' ib-' + kind : '');
       cmdMsg.innerHTML = (kind === 'ok' ? icon('check') : '') + '<span>' + esc(text) + '</span>' + (time ? '<time>' + time + '</time>' : '');
       if (remember) lastMsg = { text, kind, time };
+    }
+    function startFillCountdown(readingAt) {
+      fillCountdownUntil = Date.now() + FILL_SETTLE_MS;
+      fillCountdownBaseReadingAt = readingAt == null ? 0 : readingAt;
+    }
+    function renderFillCountdown() {
+      if (fillCountdownBaseReadingAt === null) return false;
+      const now = Date.now();
+      if (S.lastReadingAt != null && S.lastReadingAt !== fillCountdownBaseReadingAt && now >= fillCountdownUntil) {
+        fillCountdownUntil = 0;
+        fillCountdownBaseReadingAt = null;
+        return false;
+      }
+      const remaining = Math.ceil(Math.max(0, fillCountdownUntil - now) / 1000);
+      if (remaining > 0) {
+        setText('mCountSub', 'Fill reading starts in ' + remaining + ' s');
+      } else {
+        setText('mCountSub', 'Taking stable fill reading...');
+      }
+      return true;
     }
     function clearConfirm() {
       clearTimeout(confirmTimer);
@@ -498,7 +553,7 @@
       if (live) {
         if (el.pct) el.pct.style.display = '';
         setText('fillNote', isConnected() ? 'of capacity used' : 'last recorded capacity used');
-        if (svg) svg.setAttribute('aria-label', 'Bin is ' + Math.round(S.fill) + '% full. The sensor reads ' + Math.round(dist(S.fill)) + ' centimetres to the waste.');
+        if (svg) svg.setAttribute('aria-label', 'Bin is ' + Math.round(S.fill) + '% full. The sensor reads ' + currentDist().toFixed(1) + ' centimetres to the waste.');
         if (chartWrap) chartWrap.setAttribute('aria-label', 'Fill level over time. Currently ' + Math.round(S.fill) + '% full.');
       } else {
         if (el.pct) el.pct.style.display = 'none';
@@ -515,19 +570,22 @@
         if (flagged) {
           banner.dataset.ibS = statusOf(S.fill).key;
           setText('bannerTitle', (S.bin.name || 'This bin') + ' is ' + Math.round(S.fill) + '% full');
-          setText('bannerDetail', S.fill >= 95 ? 'Collect as soon as possible.' : 'Collection needed soon.');
+          setText('bannerDetail', 'Collect as soon as possible.');
         }
       }
 
-      renderMetrics(); renderTable(); renderEvents(); renderChart(); renderLid();
+      renderMetrics(); renderTable(); renderEvents(); renderChart(); renderLid(); renderFillCountdown();
     }
 
     function update(partial) {
       partial = partial || {};
+      const prevLid = S.lid;
+      const prevReadingAt = S.lastReadingAt;
       const next = Object.assign({}, S, partial);
       if (partial.bin) next.bin = Object.assign({}, S.bin, partial.bin);
       if (partial.history) next.history = normalizeHistory(partial.history);
       S = next;
+      if (prevLid === 'open' && S.lid === 'closed') startFillCountdown(prevReadingAt);
       render();
     }
 
@@ -535,6 +593,7 @@
     function tickClock() {
       setText('clock', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       renderMetrics();
+      renderFillCountdown();
     }
     setText('today', new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
     setInterval(tickClock, 1000);
