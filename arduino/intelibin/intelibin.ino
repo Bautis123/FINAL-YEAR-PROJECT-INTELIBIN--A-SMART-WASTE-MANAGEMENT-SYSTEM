@@ -17,6 +17,11 @@
  * PC -> Arduino protocol:
  *   OPEN
  *   CLOSE
+ *   RESET
+ *
+ * Fill readings:
+ *   The firmware reads fill once at startup, then once after each lid close.
+ *   Each fill reading is the median of 20 HC-SR04 samples.
  */
 
 #include <Servo.h>
@@ -31,15 +36,19 @@ const int PERSON_THRESHOLD_CM = 15;
 const int LID_CLOSED_ANGLE    = 90;
 const int LID_OPEN_ANGLE      = 180;
 
-const float EMPTY_DISTANCE_CM = 20.9;
+const float EMPTY_DISTANCE_CM = 19.0;
 const float FULL_DISTANCE_CM  = 4.0;
-const int FILL_SAMPLE_COUNT   = 7;
-const int MIN_VALID_SAMPLES   = 5;
+const int FILL_SAMPLE_COUNT   = 20;
+const int MIN_VALID_SAMPLES   = 12;
+const float MAX_SAMPLE_SPREAD_CM = 6.0;
+const int MAX_FILL_DROP_PERCENT = 5;
+const int EMPTY_DETECT_PERCENT = 10;
+const float EMPTY_DETECT_DISTANCE_CM = 18.0;
 
-const unsigned long FILL_READ_INTERVAL_MS = 300000UL; // 5 minutes
 const unsigned long HEARTBEAT_INTERVAL_MS = 5000UL;   // connection status
 const unsigned long LID_OPEN_DURATION_MS  = 5000UL;   // 5 seconds
 const unsigned long PERSON_POLL_MS        = 100UL;
+const unsigned long FILL_SETTLE_DELAY_MS  = 5000UL;   // wait 5 seconds after closing lid
 
 Servo lidServo;
 
@@ -53,9 +62,11 @@ float lastFillDistance = -1;
 int lastFillPercent = 0;
 
 unsigned long lidCloseAt = 0;
-unsigned long lastFillReadAt = 0;
 unsigned long lastHeartbeatAt = 0;
 unsigned long lastPersonPollAt = 0;
+unsigned long fillReadAt = 0;
+
+bool fillReadScheduled = false;
 
 float measureDistance(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
@@ -76,6 +87,10 @@ int distanceToFillPercent(float distanceCm) {
   return constrain(pct, 0, 100);
 }
 
+bool isValidFillDistance(float distanceCm) {
+  return distanceCm > 0 && distanceCm <= EMPTY_DISTANCE_CM;
+}
+
 float medianOf(float values[], int size) {
   for (int i = 0; i < size - 1; i++) {
     for (int j = i + 1; j < size; j++) {
@@ -87,25 +102,37 @@ float medianOf(float values[], int size) {
     }
   }
 
+  if (size % 2 == 0) {
+    return (values[(size / 2) - 1] + values[size / 2]) / 2.0;
+  }
+
   return values[size / 2];
 }
 
 bool readMedianDistance(int trigPin, int echoPin, float* distanceCm) {
   float readings[FILL_SAMPLE_COUNT];
   int validReadings = 0;
+  float minDistance = 999;
+  float maxDistance = -1;
 
   for (int i = 0; i < FILL_SAMPLE_COUNT; i++) {
     float distance = measureDistance(trigPin, echoPin);
 
-    if (distance > 0) {
+    if (isValidFillDistance(distance)) {
       readings[validReadings] = distance;
       validReadings++;
+      if (distance < minDistance) minDistance = distance;
+      if (distance > maxDistance) maxDistance = distance;
     }
 
     delay(50);
   }
 
   if (validReadings < MIN_VALID_SAMPLES) {
+    return false;
+  }
+
+  if ((maxDistance - minDistance) > MAX_SAMPLE_SPREAD_CM) {
     return false;
   }
 
@@ -154,7 +181,12 @@ void openLid(bool timed) {
   sendStatus("lid", false, false);
 }
 
-void closeLid() {
+void scheduleFillRead() {
+  fillReadScheduled = true;
+  fillReadAt = millis() + FILL_SETTLE_DELAY_MS;
+}
+
+void closeLid(bool measureAfterClose) {
   if (lidIsOpen) {
     lidServo.write(LID_CLOSED_ANGLE);
     delay(500);
@@ -163,6 +195,16 @@ void closeLid() {
 
   lidCloseAt = 0;
   sendStatus("lid", false, false);
+
+  if (measureAfterClose) {
+    scheduleFillRead();
+  }
+}
+
+void resetFillState() {
+  lastFillDistance = EMPTY_DISTANCE_CM;
+  lastFillPercent = 0;
+  binFull = false;
 }
 
 void processCommand(String cmd) {
@@ -172,7 +214,10 @@ void processCommand(String cmd) {
   if (cmd == "OPEN") {
     openLid(false);
   } else if (cmd == "CLOSE") {
-    closeLid();
+    closeLid(true);
+  } else if (cmd == "RESET") {
+    closeLid(false);
+    resetFillState();
   }
 }
 
@@ -184,12 +229,33 @@ void readFillLevel() {
     return;
   }
 
+  int measuredFillPercent = distanceToFillPercent(medianDistance);
+  bool emptyDetected = measuredFillPercent <= EMPTY_DETECT_PERCENT && medianDistance >= EMPTY_DETECT_DISTANCE_CM;
+
+  if (emptyDetected) {
+    lastFillDistance = medianDistance;
+    lastFillPercent = measuredFillPercent;
+    binFull = false;
+    sendStatus("reading", false, false);
+    return;
+  }
+
+  if (measuredFillPercent < lastFillPercent - MAX_FILL_DROP_PERCENT) {
+    sendStatus("reading_error", false, false);
+    return;
+  }
+
+  if (measuredFillPercent < lastFillPercent) {
+    sendStatus("reading", false, false);
+    return;
+  }
+
   lastFillDistance = medianDistance;
-  lastFillPercent = distanceToFillPercent(lastFillDistance);
+  lastFillPercent = measuredFillPercent;
   binFull = lastFillPercent >= 80;
 
   if (binFull && lidIsOpen) {
-    closeLid();
+    closeLid(false);
   }
 
   sendStatus("reading", false, false);
@@ -229,7 +295,6 @@ void setup() {
   delay(500);
 
   readFillLevel();
-  lastFillReadAt = millis();
   lastHeartbeatAt = millis();
   sendStatus("ready", false, false);
 }
@@ -248,7 +313,7 @@ void loop() {
   }
 
   if (lidIsOpen && lidCloseAt > 0 && now >= lidCloseAt) {
-    closeLid();
+    closeLid(true);
   }
 
   if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS || lastHeartbeatAt == 0) {
@@ -256,8 +321,8 @@ void loop() {
     sendStatus("heartbeat", false, false);
   }
 
-  if (now - lastFillReadAt >= FILL_READ_INTERVAL_MS || lastFillReadAt == 0) {
-    lastFillReadAt = now;
+  if (fillReadScheduled && now >= fillReadAt) {
+    fillReadScheduled = false;
     readFillLevel();
   }
 }
