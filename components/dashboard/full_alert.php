@@ -9,7 +9,7 @@ $ib_st = ib_status($ib_fl ? (float)$vm['fill'] : null, $ib_a);
   <span class="ib-ico"><?= ib_icon('bell') ?></span>
   <div>
     <b data-ib="bannerTitle"><?= ib_e($vm['bin']['name']) ?> is <?= $ib_fl ? (int)round($vm['fill']) : 0 ?>% full</b>
-    <span data-ib="bannerDetail"><?= $ib_fl && $vm['fill'] >= 95 ? 'Collect as soon as possible.' : 'Collection needed soon.' ?></span>
+    <span data-ib="bannerDetail"><?= $ib_fl ? 'Collect as soon as possible.' : 'Collection needed soon.' ?></span>
   </div>
   <a href="<?= ib_e($vm['alerts_href']) ?>">View alerts</a>
 </div>
