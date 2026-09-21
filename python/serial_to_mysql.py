@@ -11,7 +11,7 @@ INBOUND  (Arduino → Python → MySQL):
 OUTBOUND (MySQL → Python → Arduino):
   - 'open'  command  →  sends "OPEN\n"  to Arduino
   - 'close' command  →  sends "CLOSE\n" to Arduino
-  - 'reset' command  →  sends "CLOSE\n" + resolves alerts
+  - 'reset' command  →  sends "RESET\n" + resolves alerts
 
 Arduino serial protocol:
   Messages FROM Arduino:
@@ -251,7 +251,7 @@ class CommandPoller(threading.Thread):
                         log(f"Command queued: '{cmd}' by '{row['command_by']}'")
                         self.pending    = cmd
                         self.pending_at = time.time()
-                        arduino_msg = 'OPEN' if cmd == 'open' else 'CLOSE'
+                        arduino_msg = 'OPEN' if cmd == 'open' else ('RESET' if cmd == 'reset' else 'CLOSE')
                         send_to_arduino(self.ser, arduino_msg)
 
                     elif time.time() - self.pending_at > COMMAND_TIMEOUT:
