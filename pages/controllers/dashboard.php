@@ -36,7 +36,7 @@ try {
 }
 
 $stmt = $pdo->prepare("
-  SELECT fill_percent, recorded_at
+  SELECT fill_percent, distance_cm, recorded_at
   FROM readings
   WHERE bin_id = :id AND recorded_at >= NOW() - INTERVAL 7 DAY
   ORDER BY recorded_at ASC
@@ -46,6 +46,7 @@ $historyRows = $stmt->fetchAll();
 $history = array_map(fn($r) => [
   't' => strtotime($r['recorded_at']),
   'p' => (float)$r['fill_percent'],
+  'd' => isset($r['distance_cm']) ? (float)$r['distance_cm'] : null,
 ], $historyRows);
 
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM readings WHERE bin_id = :id");
@@ -86,7 +87,7 @@ foreach ($commandRows as $cmd) {
 }
 
 $hasRecentSignal = $lastSeenTs !== null && ($now - $lastSeenTs) <= 20;
-$pipelineState = $fill === null ? 'idle' : ($fill >= 95 ? 'full' : ($fill >= 80 ? 'almost' : ($fill >= 60 ? 'filling' : 'ready')));
+$pipelineState = $fill === null ? 'idle' : ($fill >= 80 ? 'full' : ($fill >= 50 ? 'almost' : ($fill >= 20 ? 'filling' : 'ready')));
 
 $bins = [];
 foreach ($allBins as $bin) {
@@ -113,6 +114,7 @@ $vm = [
   ],
   'bins' => $bins,
   'fill' => $fill,
+  'distance_cm' => isset($initial['distance_cm']) ? (float)$initial['distance_cm'] : null,
   'total_readings' => $totalReadings,
   'last_reading_ts' => $lastReadingTs,
   'lid' => in_array($lidStatus, ['open', 'closed'], true) ? $lidStatus : ($lidStatus === 'locked' ? 'closed' : null),
