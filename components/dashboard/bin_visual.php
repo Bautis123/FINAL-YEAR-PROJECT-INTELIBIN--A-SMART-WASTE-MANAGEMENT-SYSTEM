@@ -8,13 +8,15 @@
 require_once __DIR__ . '/_helpers.php';
 $ib_live = $vm['fill'] !== null;
 $ib_p    = $ib_live ? (float)$vm['fill'] : 0.0;
+$ib_d    = $vm['distance_cm'] ?? null;
+$ib_dist = $ib_d !== null ? (float)$ib_d : ib_dist($ib_p, $vm['bin']);
 $ib_sy   = 436 - 3 * $ib_p;
 $ib_w    = min(96, ($ib_sy - 124) * 0.36);
 $ib_y2   = $ib_sy - 2;
 $ib_thr  = 436 - 3 * (int)$vm['bin']['alert_at'];
 $ib_f    = fn($n) => number_format($n, 1, '.', '');
 $ib_aria = $ib_live
-    ? 'Bin is ' . round($ib_p) . '% full. The sensor reads ' . round(ib_dist($ib_p, $vm['bin'])) . ' centimetres to the waste.'
+    ? 'Bin is ' . round($ib_p) . '% full. The sensor reads ' . number_format($ib_dist, 1) . ' centimetres to the waste.'
     : 'Bin is empty. No readings yet.';
 ?>
 <svg class="ib-bin-svg" data-ib="binSvg" viewBox="0 0 360 470" role="img" aria-label="<?= ib_e($ib_aria) ?>">
@@ -80,7 +82,7 @@ $ib_aria = $ib_live
     <circle data-ib="echo" cx="180" cy="<?= $ib_f($ib_y2) ?>" r="3.5" fill="#17694A"/>
     <g data-ib="chip" transform="translate(180 <?= $ib_f((132 + $ib_y2) / 2) ?>)">
       <rect x="-31" y="-12" width="62" height="24" rx="12" fill="#fff" stroke="#17694A" stroke-opacity=".55"/>
-      <text data-ib="dimText" y="4.5" text-anchor="middle" fill="#0D3628" font-size="12.5" font-weight="700"><?= round(ib_dist($ib_p, $vm['bin'])) ?> cm</text>
+      <text data-ib="dimText" y="4.5" text-anchor="middle" fill="#0D3628" font-size="12.5" font-weight="700"><?= number_format($ib_dist, 1) ?> cm</text>
     </g>
   </g>
 
