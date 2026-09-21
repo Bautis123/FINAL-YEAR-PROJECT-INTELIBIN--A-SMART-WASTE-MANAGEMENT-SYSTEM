@@ -11,11 +11,12 @@
  *   bin            ['id','name','location','height_cm','dead_zone_cm','alert_at']
  *   bins           list of ['id','name','location','fill']   (tabs show only when 2+)
  *   fill           latest fill % (float) or null when there are no readings yet
+ *   distance_cm    latest sensor distance (float) or null
  *   total_readings int          last_reading_ts unix seconds|null
  *   lid            'open' | 'closed' | null
  *   visits_today   int          visits_all int
  *   device         ['sensor_online','controller_online','sensor_label','controller_label']
- *   history        list of ['t'=>unix sec,'p'=>fill %,'empty'=>bool?]  ascending, ~7 days
+ *   history        list of ['t'=>unix sec,'p'=>fill %,'d'=>distance cm?,'empty'=>bool?]  ascending, ~7 days
  *   events         list of ['t','kind','title','detail']   (omit to derive from history)
  *                  kind: emptied | almost | full | lid_open | lid_closed | info
  *   fill_rate, hours_to_full, last_emptied_ts     (omit to derive from history)
@@ -70,9 +71,9 @@ function ib_shell_vm(string $active = 'dashboard', array $overrides = []): array
 /* ---------- status, distance, formatting (mirrors dashboard-ui.js) ---------- */
 function ib_status(?float $p, int $alertAt = 80): array {
     if ($p === null) return ['key' => 'idle',    'label' => 'Waiting for data'];
-    if ($p >= 95)      return ['key' => 'full',    'label' => 'Full'];
-    if ($p >= $alertAt) return ['key' => 'almost',  'label' => 'Almost full'];
-    if ($p >= 60)      return ['key' => 'filling', 'label' => 'Filling up'];
+    if ($p >= $alertAt) return ['key' => 'full',    'label' => 'Full'];
+    if ($p >= 50)      return ['key' => 'almost',  'label' => 'Almost full'];
+    if ($p >= 20)      return ['key' => 'filling', 'label' => 'Filling up'];
     return ['key' => 'ready', 'label' => 'Ready'];
 }
 function ib_dist(float $p, array $bin): float {
@@ -109,7 +110,7 @@ function ib_dur(float $h): string {
 /* ---------- history normalising and deriving ---------- */
 function ib_history(array $list): array {
     $h = [];
-    foreach ($list as $x) $h[] = ['t' => (int)$x['t'], 'p' => (float)$x['p'], 'empty' => $x['empty'] ?? null];
+    foreach ($list as $x) $h[] = ['t' => (int)$x['t'], 'p' => (float)$x['p'], 'd' => isset($x['d']) ? (float)$x['d'] : null, 'empty' => $x['empty'] ?? null];
     usort($h, fn($a, $b) => $a['t'] <=> $b['t']);
     foreach ($h as $i => &$x) {
         if ($x['empty'] === null) $x['empty'] = $i > 0 && ($h[$i - 1]['p'] - $x['p']) >= 25;
@@ -122,21 +123,21 @@ function ib_derive(array $h, int $alertAt): array {
     if (!$h) return $out;
     $n = count($h); $last = $h[$n - 1];
     $i = $n - 1; while ($i > 0 && !$h[$i]['empty']) $i--;
-    $hrs = ($last['t'] - $h[$i]['t']) / 3600;
-    $out['fill_rate'] = $hrs >= 1 ? ($last['p'] - $h[$i]['p']) / $hrs : null;
-    $out['hours_to_full'] = ($out['fill_rate'] !== null && $out['fill_rate'] >= 0.05) ? (100 - $last['p']) / $out['fill_rate'] : null;
+    $mins = ($last['t'] - $h[$i]['t']) / 60;
+    $out['fill_rate'] = $mins >= 1 ? ($last['p'] - $h[$i]['p']) / $mins : null;
+    $out['hours_to_full'] = ($out['fill_rate'] !== null && $out['fill_rate'] >= 0.01) ? ((100 - $last['p']) / $out['fill_rate']) / 60 : null;
     for ($k = $n - 1; $k >= 0; $k--) if ($h[$k]['empty']) { $out['last_emptied_ts'] = $h[$k]['t']; break; }
-    $a80 = $h[0]['p'] < $alertAt; $a95 = $h[0]['p'] < 95; $ev = [];
+    $a50 = $h[0]['p'] < 50; $a80 = $h[0]['p'] < $alertAt; $ev = [];
     for ($k = 1; $k < $n; $k++) {
         $a = $h[$k - 1]; $b = $h[$k];
         if ($b['empty']) {
             $ev[] = ['t' => $b['t'], 'kind' => 'emptied', 'title' => 'Bin emptied', 'detail' => 'Fill dropped from ' . round($a['p']) . '% to ' . round($b['p']) . '%'];
-            $a80 = $a95 = true; continue;
+            $a50 = $a80 = true; continue;
         }
-        if ($a80 && $b['p'] >= $alertAt) { $ev[] = ['t' => $b['t'], 'kind' => 'almost', 'title' => 'Passed ' . $alertAt . '% full', 'detail' => 'Collection needed soon']; $a80 = false; }
+        if ($a50 && $b['p'] >= 50) { $ev[] = ['t' => $b['t'], 'kind' => 'almost', 'title' => 'Passed 50% full', 'detail' => 'Bin is filling up']; $a50 = false; }
+        elseif (!$a50 && $b['p'] < 45) $a50 = true;
+        if ($a80 && $b['p'] >= $alertAt) { $ev[] = ['t' => $b['t'], 'kind' => 'full', 'title' => 'Bin is full', 'detail' => 'Collect as soon as possible']; $a80 = false; }
         elseif (!$a80 && $b['p'] < $alertAt - 5) $a80 = true;
-        if ($a95 && $b['p'] >= 95) { $ev[] = ['t' => $b['t'], 'kind' => 'full', 'title' => 'Bin is full', 'detail' => 'Collect as soon as possible']; $a95 = false; }
-        elseif (!$a95 && $b['p'] < 90) $a95 = true;
     }
     $out['events'] = array_slice(array_reverse($ev), 0, 5);
     return $out;
@@ -147,7 +148,7 @@ function ib_vm(array $in = []): array {
     $d = [
         'bin'     => ['id' => 1, 'name' => 'InteliBin #1', 'location' => '', 'height_cm' => 30, 'dead_zone_cm' => 3, 'alert_at' => 80],
         'bins'    => [],
-        'fill'    => null,
+        'fill'    => null, 'distance_cm' => null,
         'total_readings' => 0, 'last_reading_ts' => null,
         'lid'     => null, 'visits_today' => 0, 'visits_all' => 0,
         'device'  => ['sensor_online' => null, 'controller_online' => null, 'sensor_label' => 'HC-SR04', 'controller_label' => 'Arduino'],
@@ -164,7 +165,7 @@ function ib_vm(array $in = []): array {
     $der = ib_derive($vm['history'], (int)$vm['bin']['alert_at']);
     foreach (['fill_rate', 'hours_to_full', 'last_emptied_ts'] as $k) if (!array_key_exists($k, $in)) $vm[$k] = $der[$k];
     if (array_key_exists('fill_rate', $in) && !array_key_exists('hours_to_full', $in)) {
-        $vm['hours_to_full'] = ($vm['fill_rate'] !== null && $vm['fill_rate'] >= 0.05 && $vm['fill'] !== null) ? (100 - $vm['fill']) / $vm['fill_rate'] : null;
+        $vm['hours_to_full'] = ($vm['fill_rate'] !== null && $vm['fill_rate'] >= 0.01 && $vm['fill'] !== null) ? ((100 - $vm['fill']) / $vm['fill_rate']) / 60 : null;
     }
     if (!array_key_exists('events', $in)) $vm['events'] = $der['events'];
     if ($vm['last_reading_ts'] === null && $vm['history']) $vm['last_reading_ts'] = end($vm['history'])['t'];
@@ -179,6 +180,7 @@ function ib_state(array $vm): array {
         'bin' => ['id' => $b['id'], 'name' => $b['name'], 'location' => $b['location'],
                   'heightCm' => (float)$b['height_cm'], 'deadZoneCm' => (float)$b['dead_zone_cm'], 'alertAt' => (int)$b['alert_at']],
         'fill'          => $vm['fill'] === null ? null : (float)$vm['fill'],
+        'distanceCm'    => $vm['distance_cm'] === null ? null : (float)$vm['distance_cm'],
         'totalReadings' => (int)$vm['total_readings'],
         'lastReadingAt' => $ms($vm['last_reading_ts']),
         'lid'           => $vm['lid'],
@@ -186,7 +188,7 @@ function ib_state(array $vm): array {
         'visitsAll'     => (int)$vm['visits_all'],
         'device'        => ['sensorOnline' => $dv['sensor_online'], 'controllerOnline' => $dv['controller_online'],
                             'sensorLabel' => $dv['sensor_label'], 'controllerLabel' => $dv['controller_label']],
-        'history'       => array_map(fn($x) => ['t' => $x['t'] * 1000, 'p' => (float)$x['p'], 'empty' => (bool)$x['empty']], $vm['history']),
+        'history'       => array_map(fn($x) => ['t' => $x['t'] * 1000, 'p' => (float)$x['p'], 'd' => $x['d'] === null ? null : (float)$x['d'], 'empty' => (bool)$x['empty']], $vm['history']),
         'fillRate'      => $vm['fill_rate'],
         'hoursToFull'   => $vm['hours_to_full'],
         'lastEmptiedAt' => $ms($vm['last_emptied_ts']),
