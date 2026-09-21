@@ -1,55 +1,43 @@
+<?php
+$login = [
+  'action' => '/intelibin/login.php',
+  'fields' => [
+    'user' => 'user_id',
+    'pass' => 'password',
+    'remember' => 'remember_me',
+  ],
+  'csrf' => [
+    'name' => 'login_csrf_token',
+    'value' => $csrfToken ?? '',
+  ],
+  'error' => $error ?? null,
+  'username' => $userId ?? '',
+  'user_label' => 'Email or username',
+  'show_remember' => false,
+  'forgot_href' => null,
+  'help_text' => null,
+  'features' => [
+    'Live fill level',
+    'Full-bin alerts',
+    'Remote lid control',
+  ],
+  'project_note' => 'Final year project by Bautis Chileshe, University of Zambia',
+];
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Login - InteliBin</title>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/intelibin/assets/css/pages/login.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=block" rel="stylesheet">
+  <link rel="stylesheet" href="/intelibin/assets/css/pages/login.css?v=20260921-login-fonts">
 </head>
-<body>
-  <main class="login-shell">
-    <section class="login-brand-panel">
-      <div class="login-bin-icon">
-        <div class="login-bin-handle"></div>
-        <div class="login-bin-lid"></div>
-        <div class="login-bin-body"><span></span><span></span><span></span></div>
-      </div>
-      <h1>Inteli<span>Bin</span></h1>
-      <p>Smart Waste Management</p>
-      <div class="portal-label">Administration Portal</div>
-    </section>
-
-    <section class="login-form-panel">
-      <form method="POST" class="login-card">
-        <div class="login-heading">
-          <h2>Admin Login</h2>
-          <p>Sign in to access the InteliBin administration panel</p>
-        </div>
-
-        <?php if ($error): ?>
-        <div class="login-error"><?= e($error) ?></div>
-        <?php endif; ?>
-
-        <label for="user_id">User ID</label>
-        <div class="login-input">
-          <span aria-hidden="true"></span>
-          <input id="user_id" name="user_id" type="text" value="<?= e($userId) ?>" placeholder="Enter your User ID" required>
-        </div>
-
-        <label for="password">Password</label>
-        <div class="login-input">
-          <span aria-hidden="true">lock</span>
-          <input id="password" name="password" type="password" placeholder="Enter your password" required>
-          <button type="button" class="password-toggle" aria-label="Show password" data-toggle-password>view</button>
-        </div>
-
-        <a href="#" class="forgot-link">Forgot password?</a>
-        <button class="login-submit" type="submit"> Sign In</button>
-        <div class="secure-note"> Secure access for administrators only</div>
-      </form>
-    </section>
-  </main>
-  <script src="/intelibin/assets/js/pages/login.js"></script>
+<body class="ib-lg-body">
+  <?php include __DIR__ . '/../../components/auth/login.php'; ?>
+  <script src="/intelibin/assets/js/login-ui.js?v=20260921-login-fonts"></script>
+  <script>IntelibinLogin.init();</script>
 </body>
 </html>
